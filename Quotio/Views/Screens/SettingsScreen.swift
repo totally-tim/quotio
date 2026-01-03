@@ -31,9 +31,9 @@ struct SettingsScreen: View {
             // Operating Mode
             OperatingModeSection()
             
-            // Connection Mode (Local/Remote) - Only in Local Proxy Mode
-            if modeManager.isLocalProxyMode {
-                ConnectionModeSection()
+            // Remote Server Configuration - Only in Remote Proxy Mode
+            if modeManager.isRemoteProxyMode {
+                RemoteServerSection()
             }
 
             // General Settings
@@ -347,40 +347,31 @@ struct OperatingModeSection: View {
     }
 }
 
-// MARK: - Connection Mode Section
+// MARK: - Remote Server Section
 
-struct ConnectionModeSection: View {
+struct RemoteServerSection: View {
     @Environment(QuotaViewModel.self) private var viewModel
     @State private var showRemoteConfigSheet = false
     @State private var isReconnecting = false
     
-    private var manager: ConnectionModeManager { ConnectionModeManager.shared }
+    private var modeManager: OperatingModeManager { OperatingModeManager.shared }
     
     var body: some View {
         Section {
-            // Connection mode picker
-            connectionModePicker
+            // Remote configuration row
+            remoteConfigRow
             
-            // Remote configuration (only visible when remote mode is active or configured)
-            if manager.connectionMode == .remote || manager.remoteConfig != nil {
-                remoteConfigRow
-            }
-            
-            // Connection status (only visible in remote mode)
-            if manager.isRemoteMode {
-                connectionStatusRow
-            }
+            // Connection status
+            connectionStatusRow
         } header: {
-            Label("settings.connectionMode.title".localized(), systemImage: "point.3.connected.trianglepath.dotted")
+            Label("settings.remoteServer.title".localized(), systemImage: "network")
         } footer: {
-            Text(manager.isRemoteMode
-                 ? "settings.connectionMode.remoteHelp".localized()
-                 : "settings.connectionMode.localHelp".localized())
+            Text("settings.remoteServer.help".localized())
                 .font(.caption)
         }
         .sheet(isPresented: $showRemoteConfigSheet) {
             RemoteConnectionSheet(
-                existingConfig: manager.remoteConfig
+                existingConfig: modeManager.remoteConfig
             ) { config, managementKey in
                 saveRemoteConfig(config, managementKey: managementKey)
             }
@@ -388,33 +379,11 @@ struct ConnectionModeSection: View {
         }
     }
     
-    // MARK: - Connection Mode Picker
-    
-    private var connectionModePicker: some View {
-        Picker("settings.connectionMode".localized(), selection: Binding(
-            get: { manager.connectionMode },
-            set: { newMode in
-                if newMode == .remote && manager.remoteConfig == nil {
-                    // No remote config yet, show configuration sheet
-                    showRemoteConfigSheet = true
-                } else {
-                    switchMode(to: newMode)
-                }
-            }
-        )) {
-            Label("settings.connectionMode.local".localized(), systemImage: "laptopcomputer")
-                .tag(ConnectionMode.local)
-            Label("settings.connectionMode.remote".localized(), systemImage: "network")
-                .tag(ConnectionMode.remote)
-        }
-        .pickerStyle(.segmented)
-    }
-    
     // MARK: - Remote Config Row
     
     private var remoteConfigRow: some View {
         HStack {
-            if let config = manager.remoteConfig {
+            if let config = modeManager.remoteConfig {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(config.displayName)
                         .font(.subheadline)
@@ -425,13 +394,13 @@ struct ConnectionModeSection: View {
                         .lineLimit(1)
                 }
             } else {
-                Text("settings.connectionMode.notConfigured".localized())
+                Text("settings.remoteServer.notConfigured".localized())
                     .foregroundStyle(.secondary)
             }
             
             Spacer()
             
-            Button("settings.connectionMode.configure".localized()) {
+            Button("settings.remoteServer.configure".localized()) {
                 showRemoteConfigSheet = true
             }
             .buttonStyle(.bordered)
@@ -471,7 +440,7 @@ struct ConnectionModeSection: View {
     }
     
     private var shouldShowReconnectButton: Bool {
-        switch manager.connectionStatus {
+        switch modeManager.connectionStatus {
         case .disconnected, .error:
             return true
         default:
@@ -480,7 +449,7 @@ struct ConnectionModeSection: View {
     }
     
     private var statusColor: Color {
-        switch manager.connectionStatus {
+        switch modeManager.connectionStatus {
         case .connected: return .green
         case .connecting: return .orange
         case .disconnected: return .gray
@@ -489,7 +458,7 @@ struct ConnectionModeSection: View {
     }
     
     private var statusText: String {
-        switch manager.connectionStatus {
+        switch modeManager.connectionStatus {
         case .connected: return "status.connected".localized()
         case .connecting: return "status.connecting".localized()
         case .disconnected: return "status.disconnected".localized()
@@ -499,16 +468,8 @@ struct ConnectionModeSection: View {
     
     // MARK: - Actions
     
-    private func switchMode(to mode: ConnectionMode) {
-        manager.setMode(mode)
-        
-        Task {
-            await viewModel.initialize()
-        }
-    }
-    
     private func saveRemoteConfig(_ config: RemoteConnectionConfig, managementKey: String) {
-        manager.switchToRemote(config: config, managementKey: managementKey)
+        modeManager.switchToRemote(config: config, managementKey: managementKey)
         
         Task {
             await viewModel.initialize()
