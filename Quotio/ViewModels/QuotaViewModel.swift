@@ -19,7 +19,6 @@ final class QuotaViewModel {
     private let notificationManager = NotificationManager.shared
     private let modeManager = OperatingModeManager.shared
     private let refreshSettings = RefreshSettingsManager.shared
-    let connectionModeManager = ConnectionModeManager.shared  // For auto-reconnect logic only
     
     /// Request tracker for monitoring API requests through ProxyBridge
     let requestTracker = RequestTracker.shared
@@ -108,7 +107,7 @@ final class QuotaViewModel {
     // MARK: - Mode-Aware Initialization
     
     func initialize() async {
-        if connectionModeManager.isRemoteMode {
+        if modeManager.isRemoteProxyMode {
             await initializeRemoteMode()
         } else if modeManager.isMonitorMode {
             await initializeQuotaOnlyMode()
@@ -151,30 +150,30 @@ final class QuotaViewModel {
     }
     
     private func initializeRemoteMode() async {
-        guard connectionModeManager.hasValidRemoteConfig,
-              let config = connectionModeManager.remoteConfig,
-              let managementKey = connectionModeManager.remoteManagementKey else {
-            connectionModeManager.setConnectionStatus(.error("No valid remote configuration"))
+        guard modeManager.hasValidRemoteConfig,
+              let config = modeManager.remoteConfig,
+              let managementKey = modeManager.remoteManagementKey else {
+            modeManager.setConnectionStatus(.error("No valid remote configuration"))
             return
         }
         
-        connectionModeManager.setConnectionStatus(.connecting)
+        modeManager.setConnectionStatus(.connecting)
         
         setupRemoteAPIClient(config: config, managementKey: managementKey)
         
         guard let client = apiClient else {
-            connectionModeManager.setConnectionStatus(.error("Failed to create API client"))
+            modeManager.setConnectionStatus(.error("Failed to create API client"))
             return
         }
         
         let isConnected = await client.checkProxyResponding()
         
         if isConnected {
-            connectionModeManager.markConnected()
+            modeManager.markConnected()
             await refreshData()
             startAutoRefresh()
         } else {
-            connectionModeManager.setConnectionStatus(.error("Could not connect to remote server"))
+            modeManager.setConnectionStatus(.error("Could not connect to remote server"))
         }
     }
     
@@ -189,7 +188,7 @@ final class QuotaViewModel {
     }
     
     func reconnectRemote() async {
-        guard connectionModeManager.isRemoteMode else { return }
+        guard modeManager.isRemoteProxyMode else { return }
         await initializeRemoteMode()
     }
     
