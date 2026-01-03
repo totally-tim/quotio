@@ -17,9 +17,9 @@ final class QuotaViewModel {
     private let copilotFetcher = CopilotQuotaFetcher()
     private let directAuthService = DirectAuthFileService()
     private let notificationManager = NotificationManager.shared
-    private let modeManager = AppModeManager.shared
+    private let modeManager = OperatingModeManager.shared
     private let refreshSettings = RefreshSettingsManager.shared
-    let connectionModeManager = ConnectionModeManager.shared
+    let connectionModeManager = ConnectionModeManager.shared  // For auto-reconnect logic only
     
     /// Request tracker for monitoring API requests through ProxyBridge
     let requestTracker = RequestTracker.shared
@@ -96,7 +96,7 @@ final class QuotaViewModel {
     }
     
     private func restartAutoRefresh() {
-        if modeManager.isQuotaOnlyMode {
+        if modeManager.isMonitorMode {
             startQuotaOnlyAutoRefresh()
         } else if proxyManager.proxyStatus.running {
             startAutoRefresh()
@@ -110,7 +110,7 @@ final class QuotaViewModel {
     func initialize() async {
         if connectionModeManager.isRemoteMode {
             await initializeRemoteMode()
-        } else if modeManager.isQuotaOnlyMode {
+        } else if modeManager.isMonitorMode {
             await initializeQuotaOnlyMode()
         } else {
             await initializeFullMode()
@@ -297,7 +297,7 @@ final class QuotaViewModel {
     private func refreshCodexCLIQuotasInternal() async {
         // Only use CLI fetcher if proxy is not available or in quota-only mode
         // The openAIFetcher handles Codex via proxy auth files
-        guard modeManager.isQuotaOnlyMode else { return }
+        guard modeManager.isMonitorMode else { return }
         
         let quotas = await codexCLIFetcher.fetchAsProviderQuota()
         if !quotas.isEmpty {
@@ -316,7 +316,7 @@ final class QuotaViewModel {
     /// Refresh Gemini quota using CLI auth file (~/.gemini/oauth_creds.json)
     private func refreshGeminiCLIQuotasInternal() async {
         // Only use CLI fetcher in quota-only mode
-        guard modeManager.isQuotaOnlyMode else { return }
+        guard modeManager.isMonitorMode else { return }
         
         let quotas = await geminiCLIFetcher.fetchAsProviderQuota()
         if !quotas.isEmpty {
@@ -542,7 +542,7 @@ final class QuotaViewModel {
     }
     
     func manualRefresh() async {
-        if modeManager.isQuotaOnlyMode {
+        if modeManager.isMonitorMode {
             await refreshQuotasDirectly()
         } else if proxyManager.proxyStatus.running {
             await refreshData()
@@ -592,7 +592,7 @@ final class QuotaViewModel {
         async let claudeCode: () = refreshClaudeCodeQuotasInternal()
         
         // In Quota-Only Mode, also include CLI fetchers
-        if modeManager.isQuotaOnlyMode {
+        if modeManager.isMonitorMode {
             async let codexCLI: () = refreshCodexCLIQuotasInternal()
             async let geminiCLI: () = refreshGeminiCLIQuotasInternal()
             _ = await (antigravity, openai, copilot, claudeCode, codexCLI, geminiCLI)

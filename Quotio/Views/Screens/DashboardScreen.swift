@@ -9,8 +9,7 @@ import UniformTypeIdentifiers
 struct DashboardScreen: View {
     @Environment(QuotaViewModel.self) private var viewModel
     @AppStorage("hideGettingStarted") private var hideGettingStarted: Bool = false
-    private let modeManager = AppModeManager.shared
-    private var connectionModeManager: ConnectionModeManager { ConnectionModeManager.shared }
+    private let modeManager = OperatingModeManager.shared
     
     @State private var selectedProvider: AIProvider?
     @State private var projectId: String = ""
@@ -20,7 +19,7 @@ struct DashboardScreen: View {
     
     private var showGettingStarted: Bool {
         guard !hideGettingStarted else { return false }
-        guard modeManager.isFullMode else { return false }
+        guard modeManager.isLocalProxyMode else { return false }
         return !isSetupComplete
     }
     
@@ -33,7 +32,7 @@ struct DashboardScreen: View {
     
     /// Check if we should show main content
     private var shouldShowContent: Bool {
-        if modeManager.isQuotaOnlyMode {
+        if modeManager.isMonitorMode {
             return true // Always show content in quota-only mode
         }
         return viewModel.proxyManager.proxyStatus.running
@@ -42,10 +41,10 @@ struct DashboardScreen: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                if connectionModeManager.isRemoteMode {
+                if modeManager.isRemoteProxyMode {
                     // Remote Mode: Show remote connection status and data
                     remoteModeContent
-                } else if modeManager.isFullMode {
+                } else if modeManager.isLocalProxyMode {
                     // Full Mode: Check binary and proxy status
                     if !viewModel.proxyManager.isBinaryInstalled {
                         installBinarySection
@@ -66,7 +65,7 @@ struct DashboardScreen: View {
             ToolbarItem(placement: .primaryAction) {
                 Button {
                     Task {
-                        if modeManager.isFullMode && viewModel.proxyManager.proxyStatus.running {
+                        if modeManager.isLocalProxyMode && viewModel.proxyManager.proxyStatus.running {
                             await viewModel.refreshData()
                         } else {
                             await viewModel.refreshQuotasUnified()
@@ -108,7 +107,7 @@ struct DashboardScreen: View {
             }
         }
         .task {
-            if modeManager.isFullMode {
+            if modeManager.isLocalProxyMode {
                 await viewModel.agentSetupViewModel.refreshAgentStatuses()
             }
         }
@@ -151,7 +150,7 @@ struct DashboardScreen: View {
             remoteConnectionStatusBanner
             
             // Show content based on connection status
-            switch connectionModeManager.connectionStatus {
+            switch modeManager.connectionStatus {
             case .connected:
                 // Connected - show full dashboard similar to local mode
                 kpiSection
@@ -177,7 +176,7 @@ struct DashboardScreen: View {
                 Text("dashboard.remoteMode".localized())
                     .font(.headline)
                 
-                if let config = connectionModeManager.remoteConfig {
+                if let config = modeManager.remoteConfig {
                     Text(config.displayName)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -194,7 +193,7 @@ struct DashboardScreen: View {
     }
     
     private var connectionStatusColor: Color {
-        switch connectionModeManager.connectionStatus {
+        switch modeManager.connectionStatus {
         case .connected: return .green
         case .connecting: return .orange
         case .disconnected: return .gray
@@ -219,7 +218,7 @@ struct DashboardScreen: View {
     }
     
     private var connectionStatusText: String {
-        switch connectionModeManager.connectionStatus {
+        switch modeManager.connectionStatus {
         case .connected: return "status.connected".localized()
         case .connecting: return "status.connecting".localized()
         case .disconnected: return "status.disconnected".localized()
@@ -235,7 +234,7 @@ struct DashboardScreen: View {
             Text("dashboard.connectingToRemote".localized())
                 .font(.headline)
             
-            if let config = connectionModeManager.remoteConfig {
+            if let config = modeManager.remoteConfig {
                 Text(config.endpointURL)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -248,7 +247,7 @@ struct DashboardScreen: View {
         ContentUnavailableView {
             Label("dashboard.remoteDisconnected".localized(), systemImage: "network.slash")
         } description: {
-            if case .error(let message) = connectionModeManager.connectionStatus {
+            if case .error(let message) = modeManager.connectionStatus {
                 Text(message)
             } else {
                 Text("dashboard.remoteDisconnectedDesc".localized())
@@ -269,7 +268,7 @@ struct DashboardScreen: View {
     private var remoteEndpointSection: some View {
         GroupBox {
             HStack {
-                if let config = connectionModeManager.remoteConfig {
+                if let config = modeManager.remoteConfig {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(config.endpointURL)
                             .font(.system(.body, design: .monospaced))
@@ -286,7 +285,7 @@ struct DashboardScreen: View {
                 Spacer()
                 
                 Button {
-                    if let url = connectionModeManager.remoteConfig?.endpointURL {
+                    if let url = modeManager.remoteConfig?.endpointURL {
                         let pasteboard = NSPasteboard.general
                         pasteboard.clearContents()
                         pasteboard.setString(url, forType: .string)

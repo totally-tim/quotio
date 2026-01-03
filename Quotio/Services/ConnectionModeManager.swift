@@ -2,108 +2,127 @@
 //  ConnectionModeManager.swift
 //  Quotio - CLIProxyAPI GUI Wrapper
 //
-//  Manages connection mode (Local/Remote) and secure storage of remote credentials
+//  DEPRECATED: Mode management moved to OperatingModeManager.
+//  This file now contains:
+//  - KeychainHelper for secure credential storage
+//  - RemoteConnectionHandler for auto-reconnection logic
 //
 
 import Foundation
 import Security
 
-// MARK: - Connection Mode Manager
+// MARK: - Connection Mode Manager (DEPRECATED)
 
-/// Singleton manager for connection mode state and remote configuration
+/// @available(*, deprecated, message: "Use OperatingModeManager instead for mode management")
+/// Kept for backward compatibility - will be removed in future version
 @MainActor
 @Observable
 final class ConnectionModeManager {
     static let shared = ConnectionModeManager()
     
-    // MARK: - Observable State
+    // MARK: - Observable State (Delegated to OperatingModeManager)
     
-    /// Current connection mode
-    private(set) var connectionMode: ConnectionMode
+    private var operatingModeManager: OperatingModeManager {
+        OperatingModeManager.shared
+    }
     
-    /// Current remote configuration (nil if local mode)
-    private(set) var remoteConfig: RemoteConnectionConfig?
+    /// Current connection mode - delegates to OperatingModeManager
+    var connectionMode: ConnectionMode {
+        switch operatingModeManager.currentMode {
+        case .monitor, .localProxy:
+            return .local
+        case .remoteProxy:
+            return .remote
+        }
+    }
     
-    /// Current connection status
-    private(set) var connectionStatus: ConnectionStatus = .disconnected
+    /// Current remote configuration - delegates to OperatingModeManager
+    var remoteConfig: RemoteConnectionConfig? {
+        operatingModeManager.remoteConfig
+    }
+    
+    /// Current connection status - delegates to OperatingModeManager
+    var connectionStatus: ConnectionStatus {
+        operatingModeManager.connectionStatus
+    }
     
     /// Last connection error message
-    private(set) var lastError: String?
+    var lastError: String? {
+        operatingModeManager.lastError
+    }
     
-    // MARK: - Computed Properties
+    // MARK: - Computed Properties (Delegated)
     
     /// Whether currently in remote mode
-    var isRemoteMode: Bool { connectionMode == .remote }
+    var isRemoteMode: Bool { operatingModeManager.isRemoteProxyMode }
     
     /// Whether currently in local mode
-    var isLocalMode: Bool { connectionMode == .local }
+    var isLocalMode: Bool { !operatingModeManager.isRemoteProxyMode }
     
     /// Whether a valid remote config exists
     var hasValidRemoteConfig: Bool {
-        remoteConfig?.isValid == true
+        operatingModeManager.hasValidRemoteConfig
     }
     
     /// The management key for current remote config (from Keychain)
     var remoteManagementKey: String? {
-        guard let config = remoteConfig else { return nil }
-        return KeychainHelper.getManagementKey(for: config.id)
+        operatingModeManager.remoteManagementKey
+    }
+    
+    // MARK: - Auto-Reconnection State
+    
+    /// Number of consecutive connection failures
+    private(set) var consecutiveFailures: Int = 0
+    
+    /// If set, connection is banned until this time (auth failures)
+    private(set) var authBanUntil: Date?
+    
+    /// Whether auto-reconnect is currently scheduled
+    private var autoReconnectTask: Task<Void, Never>?
+    
+    /// Whether connection is currently banned due to auth failures
+    var isAuthBanned: Bool {
+        guard let banUntil = authBanUntil else { return false }
+        return Date() < banUntil
+    }
+    
+    /// Time remaining until auth ban expires (in seconds)
+    var authBanTimeRemaining: TimeInterval {
+        guard let banUntil = authBanUntil else { return 0 }
+        return max(0, banUntil.timeIntervalSinceNow)
     }
     
     // MARK: - Initialization
     
-    private init() {
-        // Load connection mode from UserDefaults
-        if let stored = UserDefaults.standard.string(forKey: "connectionMode"),
-           let mode = ConnectionMode(rawValue: stored) {
-            self.connectionMode = mode
-        } else {
-            self.connectionMode = .local
-        }
-        
-        // Load remote config from UserDefaults
-        if let data = UserDefaults.standard.data(forKey: "remoteConnectionConfig"),
-           let config = try? JSONDecoder().decode(RemoteConnectionConfig.self, from: data) {
-            self.remoteConfig = config
-        }
-    }
+    private init() {}
     
-    // MARK: - Mode Management
+    // MARK: - Mode Management (Delegated)
     
-    /// Set connection mode
+    /// Set connection mode - delegates to OperatingModeManager
     func setMode(_ mode: ConnectionMode) {
-        connectionMode = mode
-        UserDefaults.standard.set(mode.rawValue, forKey: "connectionMode")
-        
-        // Reset connection status when switching modes
-        connectionStatus = .disconnected
-        lastError = nil
+        switch mode {
+        case .local:
+            operatingModeManager.setMode(.localProxy)
+        case .remote:
+            operatingModeManager.setMode(.remoteProxy)
+        }
     }
     
     /// Switch to local mode
     func switchToLocal() {
-        setMode(.local)
+        operatingModeManager.setMode(.localProxy)
     }
     
     /// Switch to remote mode with configuration
     func switchToRemote(config: RemoteConnectionConfig, managementKey: String) {
-        // Save config
-        saveRemoteConfig(config)
-        
-        // Save management key to Keychain
-        KeychainHelper.saveManagementKey(managementKey, for: config.id)
-        
-        // Switch mode
-        setMode(.remote)
+        operatingModeManager.switchToRemote(config: config, managementKey: managementKey)
     }
     
-    // MARK: - Remote Config Management
+    // MARK: - Remote Config Management (Delegated)
     
-    /// Save remote configuration (without management key)
+    /// Save remote configuration
     func saveRemoteConfig(_ config: RemoteConnectionConfig) {
-        remoteConfig = config
-        if let data = try? JSONEncoder().encode(config) {
-            UserDefaults.standard.set(data, forKey: "remoteConnectionConfig")
-        }
+        operatingModeManager.saveRemoteConfig(config)
     }
     
     /// Update remote configuration
@@ -167,42 +186,21 @@ final class ConnectionModeManager {
     
     /// Clear remote configuration and credentials
     func clearRemoteConfig() {
-        if let config = remoteConfig {
-            KeychainHelper.deleteManagementKey(for: config.id)
-        }
-        remoteConfig = nil
-        UserDefaults.standard.removeObject(forKey: "remoteConnectionConfig")
-        
-        // Switch to local mode if currently remote
-        if isRemoteMode {
-            switchToLocal()
-        }
+        operatingModeManager.clearRemoteConfig()
     }
     
     /// Mark last successful connection
     func markConnected() {
-        connectionStatus = .connected
-        lastError = nil
-        
-        // Update lastConnected timestamp
-        if var config = remoteConfig {
-            config = RemoteConnectionConfig(
-                endpointURL: config.endpointURL,
-                displayName: config.displayName,
-                verifySSL: config.verifySSL,
-                timeoutSeconds: config.timeoutSeconds,
-                lastConnected: Date(),
-                id: config.id
-            )
-            saveRemoteConfig(config)
-        }
+        operatingModeManager.markConnected()
+        consecutiveFailures = 0
+        authBanUntil = nil
     }
     
-    /// Mark connection status
+    /// Mark connection status with failure tracking
     func setConnectionStatus(_ status: ConnectionStatus) {
-        connectionStatus = status
-        if case .error(let message) = status {
-            lastError = message
+        operatingModeManager.setConnectionStatus(status)
+        
+        if case .error = status {
             consecutiveFailures += 1
             
             // Check for auth ban condition (5 failures = 30min ban per CLIProxyAPI docs)
@@ -210,34 +208,12 @@ final class ConnectionModeManager {
                 authBanUntil = Date().addingTimeInterval(30 * 60) // 30 minutes
             }
         } else if case .connected = status {
-            // Reset failure counters on successful connection
             consecutiveFailures = 0
             authBanUntil = nil
         }
     }
     
     // MARK: - Auto-Reconnection
-    
-    /// Number of consecutive connection failures
-    private(set) var consecutiveFailures: Int = 0
-    
-    /// If set, connection is banned until this time (auth failures)
-    private(set) var authBanUntil: Date?
-    
-    /// Whether auto-reconnect is currently scheduled
-    private var autoReconnectTask: Task<Void, Never>?
-    
-    /// Whether connection is currently banned due to auth failures
-    var isAuthBanned: Bool {
-        guard let banUntil = authBanUntil else { return false }
-        return Date() < banUntil
-    }
-    
-    /// Time remaining until auth ban expires (in seconds)
-    var authBanTimeRemaining: TimeInterval {
-        guard let banUntil = authBanUntil else { return 0 }
-        return max(0, banUntil.timeIntervalSinceNow)
-    }
     
     /// Calculate backoff delay based on consecutive failures
     private func backoffDelay(for attempt: Int) -> TimeInterval {

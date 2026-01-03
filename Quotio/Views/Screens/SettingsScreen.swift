@@ -9,7 +9,7 @@ import ServiceManagement
 
 struct SettingsScreen: View {
     @Environment(QuotaViewModel.self) private var viewModel
-    private let modeManager = AppModeManager.shared
+    private let modeManager = OperatingModeManager.shared
     
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @AppStorage("showInDock") private var showInDock = true
@@ -28,11 +28,11 @@ struct SettingsScreen: View {
         @Bindable var lang = LanguageManager.shared
 
         Form {
-            // App Mode
-            AppModeSection()
+            // Operating Mode
+            OperatingModeSection()
             
-            // Connection Mode (Local/Remote) - Only in Full Mode
-            if modeManager.isFullMode {
+            // Connection Mode (Local/Remote) - Only in Local Proxy Mode
+            if modeManager.isLocalProxyMode {
                 ConnectionModeSection()
             }
 
@@ -82,8 +82,8 @@ struct SettingsScreen: View {
             // Privacy
             PrivacySettingsSection()
             
-            // Proxy Server - Only in Full Mode
-            if modeManager.isFullMode {
+            // Proxy Server - Only in Local Proxy Mode
+            if modeManager.isLocalProxyMode {
                 Section {
                     HStack {
                         Text("settings.port".localized())
@@ -210,8 +210,8 @@ struct SettingsScreen: View {
             // Menu Bar
             MenuBarSettingsSection()
             
-            // Paths - Only in Full Mode
-            if modeManager.isFullMode {
+            // Paths - Only in Local Proxy Mode
+            if modeManager.isLocalProxyMode {
                 Section {
                     LabeledContent("settings.binary".localized()) {
                         PathLabel(path: viewModel.proxyManager.effectiveBinaryPath)
@@ -248,40 +248,33 @@ struct SettingsScreen: View {
     }
 }
 
-// MARK: - App Mode Section
+// MARK: - Operating Mode Section
 
-struct AppModeSection: View {
+struct OperatingModeSection: View {
     @Environment(QuotaViewModel.self) private var viewModel
-    @State private var modeManager = AppModeManager.shared
+    private let modeManager = OperatingModeManager.shared
     @State private var showModeChangeConfirmation = false
-    @State private var pendingMode: AppMode?
+    @State private var pendingMode: OperatingMode?
+    @State private var showRemoteConfigSheet = false
     
     var body: some View {
         Section {
             // Mode selection cards
             VStack(spacing: 10) {
-                AppModeCard(
-                    mode: .full,
-                    isSelected: modeManager.currentMode == .full
-                ) {
-                    handleModeSelection(.full)
-                }
-                
-                AppModeCard(
-                    mode: .quotaOnly,
-                    isSelected: modeManager.currentMode == .quotaOnly
-                ) {
-                    handleModeSelection(.quotaOnly)
+                ForEach(OperatingMode.allCases) { mode in
+                    OperatingModeCard(
+                        mode: mode,
+                        isSelected: modeManager.currentMode == mode
+                    ) {
+                        handleModeSelection(mode)
+                    }
                 }
             }
             .padding(.vertical, 4)
         } header: {
             Label("settings.appMode".localized(), systemImage: "switch.2")
         } footer: {
-            if modeManager.isQuotaOnlyMode {
-                Label("settings.appMode.quotaOnlyNote".localized(), systemImage: "info.circle")
-                    .font(.caption)
-            }
+            footerText
         }
         .alert("settings.appMode.switchConfirmTitle".localized(), isPresented: $showModeChangeConfirmation) {
             Button("action.cancel".localized(), role: .cancel) {
@@ -296,13 +289,44 @@ struct AppModeSection: View {
         } message: {
             Text("settings.appMode.switchConfirmMessage".localized())
         }
+        .sheet(isPresented: $showRemoteConfigSheet) {
+            RemoteConnectionSheet(
+                existingConfig: modeManager.remoteConfig
+            ) { config, managementKey in
+                modeManager.switchToRemote(config: config, managementKey: managementKey)
+                Task {
+                    await viewModel.initialize()
+                }
+            }
+            .environment(viewModel)
+        }
     }
     
-    private func handleModeSelection(_ mode: AppMode) {
+    @ViewBuilder
+    private var footerText: some View {
+        switch modeManager.currentMode {
+        case .monitor:
+            Label("settings.appMode.quotaOnlyNote".localized(), systemImage: "info.circle")
+                .font(.caption)
+        case .remoteProxy:
+            Label("settings.appMode.remoteNote".localized(), systemImage: "info.circle")
+                .font(.caption)
+        case .localProxy:
+            EmptyView()
+        }
+    }
+    
+    private func handleModeSelection(_ mode: OperatingMode) {
         guard mode != modeManager.currentMode else { return }
         
-        if modeManager.isFullMode && mode == .quotaOnly {
-            // Confirm before switching from full to quota-only
+        // If switching to remote and no config exists, show config sheet
+        if mode == .remoteProxy && modeManager.remoteConfig == nil {
+            showRemoteConfigSheet = true
+            return
+        }
+        
+        // Confirm when switching FROM a proxy mode
+        if modeManager.isProxyMode && mode == .monitor {
             pendingMode = mode
             showModeChangeConfirmation = true
         } else {
@@ -311,7 +335,7 @@ struct AppModeSection: View {
         }
     }
     
-    private func switchToMode(_ mode: AppMode) {
+    private func switchToMode(_ mode: OperatingMode) {
         modeManager.switchMode(to: mode) {
             viewModel.stopProxy()
         }
@@ -319,95 +343,6 @@ struct AppModeSection: View {
         // Re-initialize based on new mode
         Task {
             await viewModel.initialize()
-        }
-    }
-}
-
-// MARK: - App Mode Card
-
-private struct AppModeCard: View {
-    let mode: AppMode
-    let isSelected: Bool
-    let onSelect: () -> Void
-    
-    @State private var isHovered = false
-    
-    var body: some View {
-        Button(action: onSelect) {
-            HStack(spacing: 12) {
-                // Icon
-                Image(systemName: mode.icon)
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? .white : modeColor)
-                    .frame(width: 36, height: 36)
-                    .background(isSelected ? modeColor : Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(modeColor, lineWidth: isSelected ? 0 : 1.5)
-                    )
-                
-                // Content
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(mode.displayName)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.primary)
-                    
-                    Text(mode.description)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                
-                Spacer()
-                
-                // Selection indicator
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isSelected ? modeColor : .secondary.opacity(0.4))
-            }
-            .padding(10)
-            .background(backgroundView)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10)
-                    .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
-        .animation(.easeInOut(duration: 0.15), value: isSelected)
-    }
-    
-    private var modeColor: Color {
-        switch mode {
-        case .full: return .blue
-        case .quotaOnly: return .green
-        }
-    }
-    
-    private var borderColor: Color {
-        if isSelected {
-            return modeColor
-        } else if isHovered {
-            return Color.secondary.opacity(0.5)
-        } else {
-            return Color.secondary.opacity(0.2)
-        }
-    }
-    
-    @ViewBuilder
-    private var backgroundView: some View {
-        if isSelected {
-            modeColor.opacity(0.08)
-        } else if isHovered {
-            Color.secondary.opacity(0.05)
-        } else {
-            Color.clear
         }
     }
 }
@@ -1687,7 +1622,7 @@ struct AboutScreen: View {
         VStack(spacing: 12) {
             AboutUpdateCard()
             
-            if AppModeManager.shared.isFullMode {
+            if OperatingModeManager.shared.isLocalProxyMode {
                 AboutProxyUpdateCard()
             }
         }
