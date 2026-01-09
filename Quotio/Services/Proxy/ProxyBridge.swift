@@ -457,10 +457,14 @@ final class ProxyBridge {
             return .empty
         }
 
+        // Get cached entry index (resume from where we left off)
+        let cachedIndex = settings.getCachedEntryIndex(for: model)
+        let startIndex = cachedIndex < entries.count ? cachedIndex : 0
+
         return FallbackContext(
             virtualModelName: model,
             fallbackEntries: entries,
-            currentIndex: 0,
+            currentIndex: startIndex,
             originalBody: body
         )
     }
@@ -715,7 +719,20 @@ final class ProxyBridge {
 
                     // Try next fallback
                     let nextContext = fallbackContext.next()
-                    if let nextEntry = nextContext.currentEntry {
+                    if let nextEntry = nextContext.currentEntry,
+                       let virtualModelName = nextContext.virtualModelName {
+
+                        // Update cache and route state for UI (must be done on MainActor)
+                        Task { @MainActor in
+                            let settings = FallbackSettingsManager.shared
+                            settings.updateRouteState(
+                                virtualModelName: virtualModelName,
+                                entryIndex: nextContext.currentIndex,
+                                entry: nextEntry,
+                                totalEntries: nextContext.fallbackEntries.count
+                            )
+                        }
+
                         let nextBody = self.replaceModelInBody(fallbackContext.originalBody, with: nextEntry.modelId)
 
                         self.forwardRequest(

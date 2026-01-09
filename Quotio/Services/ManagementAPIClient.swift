@@ -96,6 +96,8 @@ actor ManagementAPIClient {
     }
     
     /// Initialize for remote connection with custom timeout
+    /// - Warning: Setting `verifySSL: false` disables certificate validation, making the connection
+    ///   vulnerable to man-in-the-middle attacks. Only use for self-signed certificates in trusted networks.
     init(baseURL: String, authKey: String, timeoutConfig: TimeoutConfig, verifySSL: Bool = true) {
         self.baseURL = baseURL
         self.authKey = authKey
@@ -114,6 +116,10 @@ actor ManagementAPIClient {
         self.session = URLSession(configuration: config, delegate: sessionDelegate, delegateQueue: nil)
         
         Self.log("[\(clientId)] Remote client created, timeout=\(Int(timeoutConfig.requestTimeout))/\(Int(timeoutConfig.resourceTimeout))s, verifySSL=\(verifySSL)")
+        
+        if !verifySSL {
+            print("[SECURITY WARNING] SSL verification disabled for \(baseURL). Connection is vulnerable to MITM attacks.")
+        }
     }
     
     /// Convenience initializer for remote connection with RemoteConnectionConfig
@@ -271,8 +277,17 @@ actor ManagementAPIClient {
     }
     
     func setRoutingStrategy(_ strategy: String) async throws {
-        let body = try JSONEncoder().encode(["strategy": strategy])
-        _ = try await makeRequest("/routing", method: "PUT", body: body)
+        let body = try JSONEncoder().encode(["value": strategy])
+
+        // Try new endpoint first (CLIProxyAPIPlus v6.6.92+)
+        do {
+            _ = try await makeRequest("/routing/strategy", method: "PUT", body: body)
+            return
+        } catch APIError.httpError(404) {
+            // Fall back to legacy endpoint for older CLIProxyAPI versions
+            let legacyBody = try JSONEncoder().encode(["strategy": strategy])
+            _ = try await makeRequest("/routing", method: "PUT", body: legacyBody)
+        }
     }
     
     func setQuotaExceededSwitchProject(_ enabled: Bool) async throws {
