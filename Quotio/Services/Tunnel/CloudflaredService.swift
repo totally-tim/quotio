@@ -66,7 +66,9 @@ actor CloudflaredService {
         
         let newProcess = Process()
         newProcess.executableURL = URL(fileURLWithPath: binaryPath)
-        newProcess.arguments = ["tunnel", "--url", "localhost:" + String(port)]
+        // Use --config /dev/null to ignore user's existing config file
+        // This ensures Quick Tunnel works without interference from named tunnels
+        newProcess.arguments = ["tunnel", "--config", "/dev/null", "--url", "http://localhost:" + String(port)]
         
         let outputPipe = Pipe()
         let errorPipe = Pipe()
