@@ -79,6 +79,8 @@ actor CommonConfigService {
             if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 existingConfig = json
             }
+            
+            try createBackup(at: expandedPath)
         }
         
         var mergedConfig = existingConfig
@@ -95,6 +97,16 @@ actor CommonConfigService {
         try fileManager.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
         
         try outputData.write(to: URL(fileURLWithPath: expandedPath))
+    }
+    
+    private func createBackup(at path: String) throws {
+        let backupPath = path + ".backup"
+        
+        if fileManager.fileExists(atPath: backupPath) {
+            try fileManager.removeItem(atPath: backupPath)
+        }
+        
+        try fileManager.copyItem(atPath: path, toPath: backupPath)
     }
     
     func applyCommonConfigJSON(_ jsonString: String, to agent: CLIAgent) throws {

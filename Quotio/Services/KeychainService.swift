@@ -185,6 +185,112 @@ actor KeychainService {
             try delete(for: provider, account: account)
         }
     }
+    
+    // MARK: - Direct Account Operations (for UniversalProvider)
+    
+    func storeByAccount(_ account: String, key: String) throws {
+        try? deleteByAccount(account)
+        
+        guard let keyData = key.data(using: .utf8) else {
+            throw KeychainError.encodingFailed
+        }
+        
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account,
+            kSecValueData as String: keyData,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+        
+        let status = SecItemAdd(query as CFDictionary, nil)
+        
+        guard status == errSecSuccess else {
+            throw KeychainError.storeFailed(status)
+        }
+    }
+    
+    func retrieveByAccount(_ account: String) throws -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        if status == errSecItemNotFound {
+            return nil
+        }
+        
+        guard status == errSecSuccess else {
+            throw KeychainError.retrieveFailed(status)
+        }
+        
+        guard let data = result as? Data,
+              let key = String(data: data, encoding: .utf8) else {
+            throw KeychainError.decodingFailed
+        }
+        
+        return key
+    }
+    
+    func deleteByAccount(_ account: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecAttrAccount as String: account
+        ]
+        
+        let status = SecItemDelete(query as CFDictionary)
+        
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.deleteFailed(status)
+        }
+    }
+    
+    func existsByAccount(_ account: String) -> Bool {
+        do {
+            return try retrieveByAccount(account) != nil
+        } catch {
+            return false
+        }
+    }
+    
+    func listUniversalProviderAccounts() throws -> [String] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+        
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        
+        if status == errSecItemNotFound {
+            return []
+        }
+        
+        guard status == errSecSuccess else {
+            throw KeychainError.retrieveFailed(status)
+        }
+        
+        guard let items = result as? [[String: Any]] else {
+            return []
+        }
+        
+        return items.compactMap { item in
+            guard let account = item[kSecAttrAccount as String] as? String else { return nil }
+            if account.hasPrefix("universal.") {
+                return account
+            }
+            return nil
+        }
+    }
 }
 
 // MARK: - Types

@@ -147,7 +147,16 @@ extension UniversalProvider {
 
 extension Color {
     func toHex() -> String? {
-        guard let components = NSColor(self).cgColor.components else { return nil }
+        guard let srgbColor = NSColor(self).usingColorSpace(.sRGB),
+              let components = srgbColor.cgColor.components,
+              components.count >= 3 else {
+            if let grayComponents = NSColor(self).cgColor.components,
+               !grayComponents.isEmpty {
+                let gray = Int(grayComponents[0] * 255)
+                return String(format: "#%02X%02X%02X", gray, gray, gray)
+            }
+            return nil
+        }
         let r = Int(components[0] * 255)
         let g = Int(components[1] * 255)
         let b = Int(components[2] * 255)

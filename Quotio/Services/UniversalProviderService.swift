@@ -136,24 +136,59 @@ final class UniversalProviderService {
     
     // MARK: - API Key Management
     
+    func validateAPIKey(_ key: String, for provider: UniversalProvider) -> ValidationResult {
+        guard !key.isEmpty else {
+            return .invalid("API key cannot be empty")
+        }
+        
+        guard key.count >= 8 else {
+            return .invalid("API key appears too short")
+        }
+        
+        let baseURL = provider.baseURL.lowercased()
+        
+        if baseURL.contains("anthropic") {
+            if !key.hasPrefix("sk-ant-") {
+                return .warning("Anthropic keys typically start with 'sk-ant-'")
+            }
+        } else if baseURL.contains("openai") {
+            if !key.hasPrefix("sk-") {
+                return .warning("OpenAI keys typically start with 'sk-'")
+            }
+        } else if baseURL.contains("openrouter") {
+            if !key.hasPrefix("sk-or-") {
+                return .warning("OpenRouter keys typically start with 'sk-or-'")
+            }
+        }
+        
+        return .valid
+    }
+    
     func storeAPIKey(_ key: String, for provider: UniversalProvider) async throws -> ValidationResult {
-        let dummyProvider = AIProvider.codex
-        return try await keychain.storeValidated(key: key, for: dummyProvider, account: provider.id.uuidString)
+        let validation = validateAPIKey(key, for: provider)
+        
+        if case .invalid = validation {
+            return validation
+        }
+        
+        let account = "universal.\(provider.id.uuidString)"
+        try await keychain.storeByAccount(account, key: key)
+        return validation
     }
     
     func retrieveAPIKey(for provider: UniversalProvider) async throws -> String? {
-        let dummyProvider = AIProvider.codex
-        return try await keychain.retrieve(for: dummyProvider, account: provider.id.uuidString)
+        let account = "universal.\(provider.id.uuidString)"
+        return try await keychain.retrieveByAccount(account)
     }
     
     func deleteAPIKey(for provider: UniversalProvider) async throws {
-        let dummyProvider = AIProvider.codex
-        try await keychain.delete(for: dummyProvider, account: provider.id.uuidString)
+        let account = "universal.\(provider.id.uuidString)"
+        try await keychain.deleteByAccount(account)
     }
     
     func hasAPIKey(for provider: UniversalProvider) async -> Bool {
-        let dummyProvider = AIProvider.codex
-        return await keychain.exists(for: dummyProvider, account: provider.id.uuidString)
+        let account = "universal.\(provider.id.uuidString)"
+        return await keychain.existsByAccount(account)
     }
     
     // MARK: - Persistence
