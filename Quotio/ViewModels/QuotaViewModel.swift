@@ -12,14 +12,16 @@ import Observation
 @Observable
 final class QuotaViewModel {
     let proxyManager: CLIProxyManager
-    @ObservationIgnored private var apiClient: ManagementAPIClient?
+    @ObservationIgnored private var _apiClient: ManagementAPIClient?
+    
+    var apiClient: ManagementAPIClient? { _apiClient }
     @ObservationIgnored private let antigravityFetcher = AntigravityQuotaFetcher()
     @ObservationIgnored private let openAIFetcher = OpenAIQuotaFetcher()
     @ObservationIgnored private let copilotFetcher = CopilotQuotaFetcher()
     @ObservationIgnored private let glmFetcher = GLMQuotaFetcher()
     @ObservationIgnored private let directAuthService = DirectAuthFileService()
     @ObservationIgnored private let notificationManager = NotificationManager.shared
-    @ObservationIgnored private let modeManager = AppModeManager.shared
+    @ObservationIgnored private let modeManager = OperatingModeManager.shared
     @ObservationIgnored private let refreshSettings = RefreshSettingsManager.shared
     @ObservationIgnored private let warmupSettings = WarmupSettingsManager.shared
     @ObservationIgnored private let warmupService = WarmupService()
@@ -31,12 +33,16 @@ final class QuotaViewModel {
     /// Request tracker for monitoring API requests through ProxyBridge
     let requestTracker = RequestTracker.shared
     
+    /// Tunnel manager for Cloudflare Tunnel integration
+    let tunnelManager = TunnelManager.shared
+    
     // Quota-Only Mode Fetchers (CLI-based)
     @ObservationIgnored private let claudeCodeFetcher = ClaudeCodeQuotaFetcher()
     @ObservationIgnored private let cursorFetcher = CursorQuotaFetcher()
     @ObservationIgnored private let codexCLIFetcher = CodexCLIQuotaFetcher()
     @ObservationIgnored private let geminiCLIFetcher = GeminiCLIQuotaFetcher()
     @ObservationIgnored private let traeFetcher = TraeQuotaFetcher()
+    @ObservationIgnored private let kiroFetcher = KiroQuotaFetcher()
     
     @ObservationIgnored private var lastKnownAccountStatuses: [String: String] = [:]
     
@@ -65,7 +71,7 @@ final class QuotaViewModel {
             return vm
         }
         let vm = AgentSetupViewModel()
-        vm.setup(proxyManager: proxyManager)
+        vm.setup(proxyManager: proxyManager, quotaViewModel: self)
         _agentSetupViewModel = vm
         return vm
     }
@@ -143,7 +149,7 @@ final class QuotaViewModel {
     }
     
     private func restartAutoRefresh() {
-        if modeManager.isQuotaOnlyMode {
+        if modeManager.isMonitorMode {
             startQuotaOnlyAutoRefresh()
         } else if proxyManager.proxyStatus.running {
             startAutoRefresh()
@@ -154,16 +160,16 @@ final class QuotaViewModel {
     
     // MARK: - Mode-Aware Initialization
     
-    /// Initialize the app based on current mode
     func initialize() async {
-        if modeManager.isQuotaOnlyMode {
+        if modeManager.isRemoteProxyMode {
+            await initializeRemoteMode()
+        } else if modeManager.isMonitorMode {
             await initializeQuotaOnlyMode()
         } else {
             await initializeFullMode()
         }
     }
     
-    /// Initialize for Full Mode (with proxy)
     private func initializeFullMode() async {
         // Always refresh quotas directly first (works without proxy)
         await refreshQuotasUnified()
@@ -197,6 +203,47 @@ final class QuotaViewModel {
         startQuotaOnlyAutoRefresh()
     }
     
+    private func initializeRemoteMode() async {
+        guard modeManager.hasValidRemoteConfig,
+              let config = modeManager.remoteConfig,
+              let managementKey = modeManager.remoteManagementKey else {
+            modeManager.setConnectionStatus(.error("No valid remote configuration"))
+            return
+        }
+        
+        modeManager.setConnectionStatus(.connecting)
+        
+        await setupRemoteAPIClient(config: config, managementKey: managementKey)
+        
+        guard let client = apiClient else {
+            modeManager.setConnectionStatus(.error("Failed to create API client"))
+            return
+        }
+        
+        let isConnected = await client.checkProxyResponding()
+        
+        if isConnected {
+            modeManager.markConnected()
+            await refreshData()
+            startAutoRefresh()
+        } else {
+            modeManager.setConnectionStatus(.error("Could not connect to remote server"))
+        }
+    }
+    
+    private func setupRemoteAPIClient(config: RemoteConnectionConfig, managementKey: String) async {
+        if let existingClient = _apiClient {
+            await existingClient.invalidate()
+        }
+        
+        _apiClient = ManagementAPIClient(config: config, managementKey: managementKey)
+    }
+    
+    func reconnectRemote() async {
+        guard modeManager.isRemoteProxyMode else { return }
+        await initializeRemoteMode()
+    }
+    
     // MARK: - Direct Auth File Management (Quota-Only Mode)
     
     /// Load auth files directly from filesystem
@@ -222,8 +269,9 @@ final class QuotaViewModel {
         async let codexCLI: () = refreshCodexCLIQuotasInternal()
         async let geminiCLI: () = refreshGeminiCLIQuotasInternal()
         async let glm: () = refreshGlmQuotasInternal()
+        async let kiro: () = refreshKiroQuotasInternal()
 
-        _ = await (antigravity, openai, copilot, claudeCode, codexCLI, geminiCLI, glm)
+        _ = await (antigravity, openai, copilot, claudeCode, codexCLI, geminiCLI, glm, kiro)
         
         checkQuotaNotifications()
         autoSelectMenuBarItems()
@@ -302,7 +350,7 @@ final class QuotaViewModel {
     private func refreshCodexCLIQuotasInternal() async {
         // Only use CLI fetcher if proxy is not available or in quota-only mode
         // The openAIFetcher handles Codex via proxy auth files
-        guard modeManager.isQuotaOnlyMode else { return }
+        guard modeManager.isMonitorMode else { return }
         
         let quotas = await codexCLIFetcher.fetchAsProviderQuota()
         if !quotas.isEmpty {
@@ -321,7 +369,7 @@ final class QuotaViewModel {
     /// Refresh Gemini quota using CLI auth file (~/.gemini/oauth_creds.json)
     private func refreshGeminiCLIQuotasInternal() async {
         // Only use CLI fetcher in quota-only mode
-        guard modeManager.isQuotaOnlyMode else { return }
+        guard modeManager.isMonitorMode else { return }
 
         let quotas = await geminiCLIFetcher.fetchAsProviderQuota()
         if !quotas.isEmpty {
@@ -353,6 +401,62 @@ final class QuotaViewModel {
             providerQuotas.removeValue(forKey: .trae)
         } else {
             providerQuotas[.trae] = quotas
+        }
+    }
+    
+    /// Refresh Kiro quota using IDE JSON tokens
+    private func refreshKiroQuotasInternal() async {
+        let rawQuotas = await kiroFetcher.fetchAllQuotas()
+        
+        var remappedQuotas: [String: ProviderQuotaData] = [:]
+        
+        // Helper: clean filename (remove .json)
+        func cleanName(_ name: String) -> String {
+            name.replacingOccurrences(of: ".json", with: "")
+        }
+        
+        // 1. Remap for Proxy AuthFiles
+        var consumedRawKeys = Set<String>()
+        
+        for file in authFiles where file.providerType == .kiro {
+            // The fetcher returns data keyed by clean filename
+            let filenameKey = cleanName(file.name)
+            
+            if let data = rawQuotas[filenameKey] {
+                // Store under the key the UI expects (AuthFile.quotaLookupKey)
+                let targetKey = file.quotaLookupKey.isEmpty ? file.name : file.quotaLookupKey
+                remappedQuotas[targetKey] = data
+                consumedRawKeys.insert(filenameKey)
+            }
+        }
+        
+        // 2. Remap for Direct AuthFiles (Monitor Mode)
+        if modeManager.isMonitorMode {
+            for file in directAuthFiles where file.provider == .kiro {
+                let filenameKey = cleanName(file.filename)
+                
+                // Skip if already processed by Proxy loop
+                if consumedRawKeys.contains(filenameKey) { continue }
+                
+                if let data = rawQuotas[filenameKey] {
+                    let targetKey = file.email ?? file.filename
+                    remappedQuotas[targetKey] = data
+                    consumedRawKeys.insert(filenameKey)
+                }
+            }
+        }
+        
+        // 3. Fallback: Include original keys ONLY if not mapped
+        for (key, data) in rawQuotas {
+            if !consumedRawKeys.contains(key) {
+                remappedQuotas[key] = data
+            }
+        }
+
+        if remappedQuotas.isEmpty {
+            providerQuotas.removeValue(forKey: .kiro)
+        } else {
+            providerQuotas[.kiro] = remappedQuotas
         }
     }
     
@@ -760,6 +864,11 @@ final class QuotaViewModel {
             
             await refreshData()
             await runWarmupCycle()
+            
+            let autoStartTunnel = UserDefaults.standard.bool(forKey: "autoStartTunnel")
+            if autoStartTunnel && tunnelManager.installation.isInstalled {
+                await tunnelManager.startTunnel(port: proxyManager.port)
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -777,8 +886,8 @@ final class QuotaViewModel {
         
         // Invalidate URLSession to close all connections
         // Capture client reference before setting to nil to avoid race condition
-        let clientToInvalidate = apiClient
-        apiClient = nil
+        let clientToInvalidate = _apiClient
+        _apiClient = nil
         
         if let client = clientToInvalidate {
             Task {
@@ -796,7 +905,7 @@ final class QuotaViewModel {
     }
     
     private func setupAPIClient() {
-        apiClient = ManagementAPIClient(
+        _apiClient = ManagementAPIClient(
             baseURL: proxyManager.managementURL,
             authKey: proxyManager.managementKey
         )
@@ -889,7 +998,7 @@ final class QuotaViewModel {
     }
     
     func manualRefresh() async {
-        if modeManager.isQuotaOnlyMode {
+        if modeManager.isMonitorMode {
             await refreshQuotasDirectly()
         } else if proxyManager.proxyStatus.running {
             await refreshData()
@@ -912,8 +1021,9 @@ final class QuotaViewModel {
         async let copilot: () = refreshCopilotQuotasInternal()
         async let claudeCode: () = refreshClaudeCodeQuotasInternal()
         async let glm: () = refreshGlmQuotasInternal()
+        async let kiro: () = refreshKiroQuotasInternal()
 
-        _ = await (antigravity, openai, copilot, claudeCode, glm)
+        _ = await (antigravity, openai, copilot, claudeCode, glm, kiro)
 
         checkQuotaNotifications()
         autoSelectMenuBarItems()
@@ -939,14 +1049,15 @@ final class QuotaViewModel {
         async let copilot: () = refreshCopilotQuotasInternal()
         async let claudeCode: () = refreshClaudeCodeQuotasInternal()
         async let glm: () = refreshGlmQuotasInternal()
+        async let kiro: () = refreshKiroQuotasInternal()
 
         // In Quota-Only Mode, also include CLI fetchers
-        if modeManager.isQuotaOnlyMode {
+        if modeManager.isMonitorMode {
             async let codexCLI: () = refreshCodexCLIQuotasInternal()
             async let geminiCLI: () = refreshGeminiCLIQuotasInternal()
-            _ = await (antigravity, openai, copilot, claudeCode, glm, codexCLI, geminiCLI)
+            _ = await (antigravity, openai, copilot, claudeCode, glm, kiro, codexCLI, geminiCLI)
         } else {
-            _ = await (antigravity, openai, copilot, claudeCode, glm)
+            _ = await (antigravity, openai, copilot, claudeCode, glm, kiro)
         }
 
         checkQuotaNotifications()
@@ -1047,6 +1158,8 @@ final class QuotaViewModel {
             await refreshTraeQuotasInternal()
         case .glm:
             await refreshGlmQuotasInternal()
+        case .kiro:
+            await refreshKiroQuotasInternal()
         default:
             break
         }
@@ -1129,6 +1242,20 @@ final class QuotaViewModel {
         let result = await proxyManager.runAuthCommand(method)
         
         if result.success {
+            // Check if it's an import - simply wait and refresh, don't poll for new files (files might already exist)
+            if method == .kiroImport {
+                oauthState = OAuthState(provider: .kiro, status: .polling, error: "Importing quotas...")
+                
+                // Allow some time for file operations
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                await refreshData()
+                
+                // For import, we assume success if the command succeeded
+                oauthState = OAuthState(provider: .kiro, status: .success)
+                return
+            }
+            
+            // For other methods (login), poll for new auth files
             if let deviceCode = result.deviceCode {
                 oauthState = OAuthState(provider: .kiro, status: .polling, state: deviceCode, error: result.message)
             } else {
@@ -1265,7 +1392,14 @@ final class QuotaViewModel {
         
         // Add items from direct auth files (quota-only mode)
         for file in directAuthFiles {
-            let item = MenuBarQuotaItem(provider: file.provider.rawValue, accountKey: file.email ?? file.filename)
+            var accountKey = file.email ?? file.filename
+            
+            // Kiro/CodeWhisperer special handling: Fetcher uses filename as key
+            if file.provider == .kiro {
+                accountKey = file.filename.replacingOccurrences(of: ".json", with: "")
+            }
+            
+            let item = MenuBarQuotaItem(provider: file.provider.rawValue, accountKey: accountKey)
             if !seen.contains(item.id) {
                 seen.insert(item.id)
                 validItems.append(item)

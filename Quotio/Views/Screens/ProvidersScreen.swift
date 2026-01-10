@@ -25,14 +25,14 @@ struct ProvidersScreen: View {
     @State private var showAddProviderPopover = false
     @State private var switchingAccount: AccountRowData?
 
-    private let modeManager = AppModeManager.shared
+    private let modeManager = OperatingModeManager.shared
     private let customProviderService = CustomProviderService.shared
     
     // MARK: - Computed Properties
     
     /// Providers that can be added manually
     private var addableProviders: [AIProvider] {
-        if modeManager.isFullMode {
+        if modeManager.isLocalProxyMode {
             return AIProvider.allCases.filter { $0.supportsManualAuth }
         } else {
             return AIProvider.allCases.filter { $0.supportsQuotaOnlyMode && $0.supportsManualAuth }
@@ -43,7 +43,7 @@ struct ProvidersScreen: View {
     private var groupedAccounts: [AIProvider: [AccountRowData]] {
         var groups: [AIProvider: [AccountRowData]] = [:]
 
-        if modeManager.isFullMode && viewModel.proxyManager.proxyStatus.running {
+        if modeManager.isLocalProxyMode && viewModel.proxyManager.proxyStatus.running {
             // From proxy auth files (proxy running)
             for file in viewModel.authFiles {
                 guard let provider = file.providerType else { continue }
@@ -98,6 +98,11 @@ struct ProvidersScreen: View {
     private var totalAccountCount: Int {
         groupedAccounts.values.reduce(0) { $0 + $1.count }
     }
+
+    /// Account count per provider (for AddProviderPopover badge display)
+    private var providerAccountCounts: [AIProvider: Int] {
+        groupedAccounts.mapValues { $0.count }
+    }
     
     // MARK: - Body
     
@@ -106,12 +111,12 @@ struct ProvidersScreen: View {
             // Section 1: Your Accounts (grouped by provider)
             accountsSection
             
-            // Section 2: Custom Providers (Full Mode only)
-            if modeManager.isFullMode {
+            // Section 2: Custom Providers (Local Proxy Mode only)
+            if modeManager.isLocalProxyMode {
                 customProvidersSection
             }
         }
-        .navigationTitle(modeManager.isQuotaOnlyMode ? "nav.accounts".localized() : "nav.providers".localized())
+        .navigationTitle(modeManager.isMonitorMode ? "nav.accounts".localized() : "nav.providers".localized())
         .toolbar {
             toolbarContent
         }
@@ -163,6 +168,7 @@ struct ProvidersScreen: View {
         .sheet(isPresented: $showAddProviderPopover) {
             AddProviderPopover(
                 providers: addableProviders,
+                existingCounts: providerAccountCounts,
                 onSelectProvider: { provider in
                     handleAddProvider(provider)
                 },
@@ -205,7 +211,7 @@ struct ProvidersScreen: View {
         ToolbarItem(placement: .automatic) {
             Button {
                 Task {
-                    if modeManager.isFullMode && viewModel.proxyManager.proxyStatus.running {
+        if modeManager.isLocalProxyMode && viewModel.proxyManager.proxyStatus.running {
                         await viewModel.refreshData()
                     } else {
                         await viewModel.loadDirectAuthFiles()
@@ -331,8 +337,8 @@ struct ProvidersScreen: View {
     // MARK: - Helper Functions
 
     private func handleAddProvider(_ provider: AIProvider) {
-        // In Full Mode, require proxy to be running for OAuth
-        if modeManager.isFullMode && !viewModel.proxyManager.proxyStatus.running {
+        // In Local Proxy Mode, require proxy to be running for OAuth
+        if modeManager.isLocalProxyMode && !viewModel.proxyManager.proxyStatus.running {
             showProxyRequiredAlert = true
             return
         }
@@ -487,30 +493,147 @@ struct CustomProviderRow: View {
 struct MenuBarBadge: View {
     let isSelected: Bool
     let onTap: () -> Void
-    
-    @State private var showTooltip = false
-    
+
     var body: some View {
         Button(action: onTap) {
             ZStack {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(isSelected ? Color.blue.opacity(0.1) : Color.clear)
                     .frame(width: 28, height: 28)
-                
+
                 Image(systemName: isSelected ? "chart.bar.fill" : "chart.bar")
                     .font(.system(size: 14))
                     .foregroundStyle(isSelected ? .blue : .secondary)
             }
         }
         .buttonStyle(.plain)
-        .onHover { hovering in
-            showTooltip = hovering
+        .nativeTooltip(isSelected ? "menubar.hideFromMenuBar".localized() : "menubar.showOnMenuBar".localized())
+    }
+}
+
+// MARK: - Native Tooltip Support
+
+private class TooltipWindow: NSWindow {
+    static let shared = TooltipWindow()
+
+    private let label: NSTextField = {
+        let label = NSTextField(labelWithString: "")
+        label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        label.textColor = .labelColor
+        label.backgroundColor = .clear
+        label.isBezeled = false
+        label.isEditable = false
+        return label
+    }()
+
+    private init() {
+        super.init(
+            contentRect: .zero,
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: true
+        )
+        self.isOpaque = false
+        self.backgroundColor = .clear
+        self.level = .floating
+        self.ignoresMouseEvents = true
+
+        let visualEffect = NSVisualEffectView()
+        visualEffect.material = .toolTip
+        visualEffect.state = .active
+        visualEffect.wantsLayer = true
+        visualEffect.layer?.cornerRadius = 4
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        visualEffect.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: visualEffect.topAnchor, constant: 4),
+            label.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor, constant: -4)
+        ])
+
+        self.contentView = visualEffect
+    }
+
+    func show(text: String, near view: NSView) {
+        label.stringValue = text
+        label.sizeToFit()
+
+        let labelSize = label.fittingSize
+        let windowSize = NSSize(width: labelSize.width + 16, height: labelSize.height + 8)
+
+        guard let screen = view.window?.screen ?? NSScreen.main else { return }
+        let viewFrameInScreen = view.window?.convertToScreen(view.convert(view.bounds, to: nil)) ?? .zero
+        var origin = NSPoint(
+            x: viewFrameInScreen.midX - windowSize.width / 2,
+            y: viewFrameInScreen.minY - windowSize.height - 4
+        )
+
+        // Keep tooltip on screen
+        if origin.x < screen.visibleFrame.minX {
+            origin.x = screen.visibleFrame.minX
         }
-        .popover(isPresented: $showTooltip, arrowEdge: .bottom) {
-            Text(isSelected ? "menubar.hideFromMenuBar".localized() : "menubar.showOnMenuBar".localized())
-                .font(.caption)
-                .padding(8)
+        if origin.x + windowSize.width > screen.visibleFrame.maxX {
+            origin.x = screen.visibleFrame.maxX - windowSize.width
         }
+        if origin.y < screen.visibleFrame.minY {
+            origin.y = viewFrameInScreen.maxY + 4
+        }
+
+        setFrame(NSRect(origin: origin, size: windowSize), display: true)
+        orderFront(nil)
+    }
+
+    func hide() {
+        orderOut(nil)
+    }
+}
+
+private class TooltipTrackingView: NSView {
+    var text: String = ""
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        TooltipWindow.shared.show(text: text, near: self)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        TooltipWindow.shared.hide()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+}
+
+private struct NativeTooltipView: NSViewRepresentable {
+    let text: String
+
+    func makeNSView(context: Context) -> TooltipTrackingView {
+        let view = TooltipTrackingView()
+        view.text = text
+        return view
+    }
+
+    func updateNSView(_ nsView: TooltipTrackingView, context: Context) {
+        nsView.text = text
+    }
+}
+
+private extension View {
+    func nativeTooltip(_ text: String) -> some View {
+        self.overlay(NativeTooltipView(text: text))
     }
 }
 
@@ -538,7 +661,7 @@ struct OAuthSheet: View {
     let onDismiss: () -> Void
     
     @State private var hasStartedAuth = false
-    @State private var selectedKiroMethod: AuthCommand = .kiroGoogleLogin
+    @State private var selectedKiroMethod: AuthCommand = .kiroImport
     
     private var isPolling: Bool {
         viewModel.oauthState?.status == .polling || viewModel.oauthState?.status == .waiting
@@ -553,7 +676,7 @@ struct OAuthSheet: View {
     }
     
     private var kiroAuthMethods: [AuthCommand] {
-        [.kiroGoogleLogin, .kiroAWSAuthCode, .kiroAWSLogin, .kiroImport]
+        [.kiroImport, .kiroGoogleLogin, .kiroAWSAuthCode, .kiroAWSLogin]
     }
     
     var body: some View {
@@ -593,6 +716,8 @@ struct OAuthSheet: View {
                     }
                     .pickerStyle(.menu)
                     .labelsHidden()
+                    
+
                 }
                 .frame(maxWidth: 320)
             }
@@ -640,7 +765,9 @@ struct OAuthSheet: View {
             }
         }
         .padding(40)
-        .frame(width: 480, height: 400)
+        .frame(width: 480)
+        .frame(minHeight: 350)
+        .fixedSize(horizontal: false, vertical: true)
         .animation(.easeInOut(duration: 0.2), value: viewModel.oauthState?.status)
         .onChange(of: viewModel.oauthState?.status) { _, newStatus in
             if newStatus == .success {
@@ -784,6 +911,6 @@ private struct OAuthStatusView: View {
                 .padding(.vertical, 16)
             }
         }
-        .frame(height: 120)
+        .frame(minHeight: 100)
     }
 }

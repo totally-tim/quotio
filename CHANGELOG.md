@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-01-09
+
+### Added
+
+- **fallback**: Model Fallback Strategy System (Experimental) (#136)
+  - Create virtual models with automatic provider fallback based on quota availability
+  - Dynamic fallback resolution at request time in ProxyBridge
+  - Auto-retry with next fallback entry on quota exhaustion (429)
+  - Bridge Mode routing when Fallback is enabled
+  - New Fallback screen for managing virtual models and entries
+- **ui**: Add ExperimentalBadge component for marking experimental features (a345698)
+- **onboarding**: Complete redesign with step-based flow (#136)
+  - Welcome, Mode Selection, Provider, Remote Setup, and Completion steps
+- **remote**: Remote connection support for connecting to remote proxy servers (#136)
+- **ui**: CurrentModeBadge component for displaying current operating mode (#136)
+- **docs**: Add Contributor Covenant Code of Conduct (6c2915b)
+
+### Changed
+
+- **mode**: Refactor operating mode system with enhanced OperatingMode struct (#136)
+- **agent**: Route through ProxyBridge when Fallback is enabled for virtual model detection (#136)
+
+### Fixed
+
+- **dock**: Fix dock icon management and ghost icon issues (#133)
+- **fallback**: Fix fallback route caching for better performance (#133)
+- **proxy**: CLIProxyAPIPlus v6.6.92+ compatibility (#133)
+- **quality**: Code quality improvements and cleanup (#135)
+
+## [0.6.0] - 2026-01-06
+
+### Added
+
+- **kiro**: Complete Kiro provider integration with quota monitoring and OAuth improvements (#118)
+  - Rewrite KiroQuotaFetcher to parse actual AWS CodeWhisperer API response
+  - Support trial accounts (500 bonus credits) and paid accounts (50 base credits)
+  - Display correct percentage remaining with expiry/reset dates
+  - Show plan type from subscription info (e.g., "KIRO FREE")
+- **models**: Dynamic model fetching from proxy `/models` endpoint (#118)
+  - Cache models in UserDefaults for faster subsequent loads
+  - Add refresh button with loading indicator in Agent Config sheet
+  - Group models by provider (Anthropic, OpenAI, Google) in picker dropdown
+- **antigravity**: Auto-warmup scheduling for token counter reset (#104)
+  - Flexible scheduling: "Every X minutes", "Every X hours", or "Daily at [Time]"
+  - Immediate trigger for interval-based schedules
+  - Cost-efficient single model selection to minimize resource consumption
+- **quota**: Improve Claude Code quota handling and multi-account UX (#109)
+  - Authentication error detection for expired OAuth tokens (~1 hour TTL)
+  - Show re-authenticate button when token expires
+  - Account count badge in AddProviderPopover
+  - Hint text for adding multiple accounts
+  - Show "quota not available" message for providers without quota API
+
+### Changed
+
+- Replace curl with URLSession for Claude Code network requests (#109)
+
+### Fixed
+
+- **settings**: Fix menu bar icon toggle and dock visibility (#107)
+  - Fix bug where toggling "Show Menu Bar Icon" OFF caused window and dock to disappear
+  - Fix bug where toggling menu bar icon back ON didn't restore the icon
+  - Apply "Show in Dock" toggle immediately on app launch
+- **kiro**: Fix menu bar ghost icon issue for Kiro accounts (#118)
+- **kiro**: Show auth provider name (e.g., "Google") when email is empty (#118)
+- **agent-config**: Adjust footer height in AgentConfigSheet for better layout (#119)
+- **quota**: Fix RequestTracker ISO8601 date decoding mismatch (#109)
+
 ## [0.5.1] - 2026-01-04
 
 ### Added

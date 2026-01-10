@@ -12,6 +12,7 @@
   <img src="https://img.shields.io/badge/platform-macOS-lightgrey.svg?style=flat" alt="Platform macOS" />
   <img src="https://img.shields.io/badge/language-Swift-orange.svg?style=flat" alt="Language Swift" />
   <img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat" alt="License MIT" />
+  <a href="https://discord.gg/dFzeZ7qS"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2.svg?style=flat&logo=discord&logoColor=white" alt="Discord" /></a>
   <a href="README.vi.md"><img src="https://img.shields.io/badge/lang-Tiếng%20Việt-red.svg?style=flat" alt="Vietnamese" /></a>
   <a href="README.zh.md"><img src="https://img.shields.io/badge/lang-zh--CN-green.svg?style=flat" alt="Chinese" /></a>
   <a href="README.fr.md"><img src="https://img.shields.io/badge/lang-Français-blue.svg?style=flat" alt="French" /></a>
@@ -73,6 +74,12 @@ Quotio can automatically configure these tools to use your centralized proxy:
 ### Requirements
 - macOS 15.0 (Sequoia) or later
 - Internet connection for OAuth authentication
+
+### Homebrew (Recommended)
+```bash
+brew tap nguyenphutrong/tap
+brew install --cask quotio
+```
 
 ### Download
 Download the latest `.dmg` from the [Releases](https://github.com/nguyenphutrong/quotio/releases) page.
@@ -169,6 +176,14 @@ Go to **Agents** tab → Select an installed agent → Click **Configure** → C
 4. Push to the Branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
+## 💬 Community
+
+Join our Discord community to get help, share feedback, and connect with other users:
+
+<a href="https://discord.gg/dFzeZ7qS">
+  <img src="https://img.shields.io/badge/Discord-Join%20our%20community-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white" alt="Join Discord" />
+</a>
+
 ## ⭐ Star History
 
 <picture>
@@ -189,6 +204,18 @@ Go to **Agents** tab → Select an installed agent → Click **Configure** → C
     src="https://api.star-history.com/svg?repos=nguyenphutrong/quotio&type=Date"
   />
 </picture>
+
+## 📊 Repo Activity
+
+![Repo Activity](https://repobeats.axiom.co/api/embed/884e7349c8939bfd4bdba4bc582b6fdc0ecc21ee.svg "Repobeats analytics image")
+
+## 💖 Contributors
+
+We couldn't have done this without you. Thank you! 🙏
+
+<a href="https://github.com/nguyenphutrong/quotio/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=nguyenphutrong/quotio" />
+</a>
 
 ## 📄 License
 

@@ -1,0 +1,188 @@
+# Outline
+
+[← Back to MODULE](MODULE.md) | [← Back to INDEX](../../INDEX.md)
+
+Symbol maps for 4 large files in this module.
+
+## Quotio/QuotioApp.swift (550 lines)
+
+| Line | Kind | Name | Visibility |
+| ---- | ---- | ---- | ---------- |
+| 13 | struct | QuotioApp | (internal) |
+| 100 | fn | updateStatusBar | (private) |
+| 114 | fn | initializeApp | (private) |
+| 212 | class | AppDelegate | (internal) |
+| 215 | fn | applicationDidFinishLaunching | (internal) |
+| 251 | fn | applicationShouldTerminateAfterLastWindowClosed | (internal) |
+| 255 | fn | applicationShouldHandleReopen | (internal) |
+| 273 | fn | applicationWillTerminate | (internal) |
+| 294 | fn | handleWindowDidBecomeKey | (private) |
+| 298 | fn | handleWindowWillClose | (private) |
+| 315 | struct | ContentView | (internal) |
+| 448 | struct | RemoteStatusRow | (internal) |
+| 491 | struct | ProxyStatusRow | (internal) |
+| 522 | struct | QuotaRefreshStatusRow | (internal) |
+
+## Quotio/Services/Proxy/CLIProxyManager.swift (1776 lines)
+
+| Line | Kind | Name | Visibility |
+| ---- | ---- | ---- | ---------- |
+| 9 | class | CLIProxyManager | (internal) |
+| 160 | method | init | (internal) |
+| 193 | fn | updateConfigPort | (private) |
+| 203 | fn | updateConfigLogging | (internal) |
+| 216 | fn | updateConfigRoutingStrategy | (internal) |
+| 226 | fn | updateConfigProxyURL | (internal) |
+| 246 | fn | ensureConfigExists | (private) |
+| 280 | fn | syncSecretKeyInConfig | (private) |
+| 296 | fn | regenerateManagementKey | (internal) |
+| 327 | fn | syncProxyURLInConfig | (private) |
+| 340 | fn | syncCustomProvidersToConfig | (private) |
+| 357 | fn | downloadAndInstallBinary | (internal) |
+| 418 | fn | fetchLatestRelease | (private) |
+| 437 | fn | findCompatibleAsset | (private) |
+| 462 | fn | downloadAsset | (private) |
+| 479 | fn | extractAndInstall | (private) |
+| 541 | fn | findBinaryInDirectory | (private) |
+| 574 | fn | start | (internal) |
+| 706 | fn | stop | (internal) |
+| 762 | fn | startHealthMonitor | (private) |
+| 776 | fn | stopHealthMonitor | (private) |
+| 781 | fn | performHealthCheck | (private) |
+| 844 | fn | cleanupOrphanProcesses | (private) |
+| 898 | fn | terminateAuthProcess | (internal) |
+| 904 | fn | toggle | (internal) |
+| 912 | fn | copyEndpointToClipboard | (internal) |
+| 917 | fn | revealInFinder | (internal) |
+| 923 | enum | ProxyError | (internal) |
+| 954 | enum | AuthCommand | (internal) |
+| 992 | struct | AuthCommandResult | (internal) |
+| 998 | mod | extension CLIProxyManager | (internal) |
+| 999 | fn | runAuthCommand | (internal) |
+| 1031 | fn | appendOutput | (internal) |
+| 1035 | fn | tryResume | (internal) |
+| 1046 | fn | safeResume | (internal) |
+| 1146 | mod | extension CLIProxyManager | (internal) |
+| 1175 | fn | checkForUpgrade | (internal) |
+| 1256 | fn | saveInstalledVersion | (private) |
+| 1264 | fn | fetchAvailableReleases | (internal) |
+| 1284 | fn | versionInfo | (internal) |
+| 1290 | fn | fetchGitHubRelease | (private) |
+| 1310 | fn | findCompatibleAsset | (private) |
+| 1343 | fn | performManagedUpgrade | (internal) |
+| 1397 | fn | downloadAndInstallVersion | (private) |
+| 1444 | fn | startDryRun | (private) |
+| 1515 | fn | promote | (private) |
+| 1550 | fn | rollback | (internal) |
+| 1583 | fn | stopTestProxy | (private) |
+| 1612 | fn | stopTestProxySync | (private) |
+| 1638 | fn | findUnusedPort | (private) |
+| 1648 | fn | isPortInUse | (private) |
+| 1667 | fn | createTestConfig | (private) |
+| 1695 | fn | cleanupTestConfig | (private) |
+| 1703 | fn | isNewerVersion | (private) |
+| 1706 | fn | parseVersion | (internal) |
+| 1738 | fn | findPreviousVersion | (private) |
+| 1751 | fn | migrateToVersionedStorage | (internal) |
+
+## Quotio/Services/Proxy/ProxyBridge.swift (900 lines)
+
+| Line | Kind | Name | Visibility |
+| ---- | ---- | ---- | ---------- |
+| 22 | struct | FallbackContext | (internal) |
+| 61 | class | ProxyBridge | (internal) |
+| 116 | method | init | (internal) |
+| 125 | fn | configure | (internal) |
+| 148 | fn | start | (internal) |
+| 188 | fn | stop | (internal) |
+| 198 | fn | handleListenerState | (private) |
+| 214 | fn | handleNewConnection | (private) |
+| 431 | fn | createFallbackContext | (private) |
+
+## Quotio/ViewModels/QuotaViewModel.swift (1708 lines)
+
+| Line | Kind | Name | Visibility |
+| ---- | ---- | ---- | ---------- |
+| 11 | class | QuotaViewModel | (internal) |
+| 116 | method | init | (internal) |
+| 124 | fn | setupRefreshCadenceCallback | (private) |
+| 132 | fn | setupWarmupCallback | (private) |
+| 150 | fn | restartAutoRefresh | (private) |
+| 162 | fn | initialize | (internal) |
+| 172 | fn | initializeFullMode | (private) |
+| 190 | fn | checkForProxyUpgrade | (private) |
+| 195 | fn | initializeQuotaOnlyMode | (private) |
+| 205 | fn | initializeRemoteMode | (private) |
+| 233 | fn | setupRemoteAPIClient | (private) |
+| 241 | fn | reconnectRemote | (internal) |
+| 250 | fn | loadDirectAuthFiles | (internal) |
+| 256 | fn | refreshQuotasDirectly | (internal) |
+| 281 | fn | autoSelectMenuBarItems | (private) |
+| 318 | fn | refreshClaudeCodeQuotasInternal | (private) |
+| 339 | fn | refreshCursorQuotasInternal | (private) |
+| 350 | fn | refreshCodexCLIQuotasInternal | (private) |
+| 370 | fn | refreshGeminiCLIQuotasInternal | (private) |
+| 388 | fn | refreshGlmQuotasInternal | (private) |
+| 398 | fn | refreshTraeQuotasInternal | (private) |
+| 408 | fn | refreshKiroQuotasInternal | (private) |
+| 414 | fn | cleanName | (internal) |
+| 464 | fn | startQuotaOnlyAutoRefresh | (private) |
+| 481 | fn | startQuotaAutoRefreshWithoutProxy | (private) |
+| 499 | fn | isWarmupEnabled | (internal) |
+| 503 | fn | warmupStatus | (internal) |
+| 508 | fn | warmupNextRunDate | (internal) |
+| 513 | fn | toggleWarmup | (internal) |
+| 522 | fn | setWarmupEnabled | (internal) |
+| 534 | fn | nextDailyRunDate | (private) |
+| 545 | fn | restartWarmupScheduler | (private) |
+| 578 | fn | runWarmupCycle | (private) |
+| 641 | fn | warmupAccount | (private) |
+| 686 | fn | warmupAccount | (private) |
+| 747 | fn | fetchWarmupModels | (private) |
+| 771 | fn | warmupAvailableModels | (internal) |
+| 784 | fn | warmupAuthInfo | (private) |
+| 806 | fn | warmupTargets | (private) |
+| 820 | fn | updateWarmupStatus | (private) |
+| 849 | fn | startProxy | (internal) |
+| 876 | fn | stopProxy | (internal) |
+| 898 | fn | toggleProxy | (internal) |
+| 906 | fn | setupAPIClient | (private) |
+| 913 | fn | startAutoRefresh | (private) |
+| 950 | fn | attemptProxyRecovery | (private) |
+| 966 | fn | refreshData | (internal) |
+| 999 | fn | manualRefresh | (internal) |
+| 1010 | fn | refreshAllQuotas | (internal) |
+| 1038 | fn | refreshQuotasUnified | (internal) |
+| 1068 | fn | refreshAntigravityQuotasInternal | (private) |
+| 1086 | fn | refreshAntigravityQuotasWithoutDetect | (private) |
+| 1101 | fn | isAntigravityAccountActive | (internal) |
+| 1106 | fn | switchAntigravityAccount | (internal) |
+| 1118 | fn | beginAntigravitySwitch | (internal) |
+| 1123 | fn | cancelAntigravitySwitch | (internal) |
+| 1128 | fn | dismissAntigravitySwitchResult | (internal) |
+| 1131 | fn | refreshOpenAIQuotasInternal | (private) |
+| 1136 | fn | refreshCopilotQuotasInternal | (private) |
+| 1141 | fn | refreshQuotaForProvider | (internal) |
+| 1172 | fn | refreshAutoDetectedProviders | (internal) |
+| 1179 | fn | startOAuth | (internal) |
+| 1221 | fn | startCopilotAuth | (private) |
+| 1238 | fn | startKiroAuth | (private) |
+| 1272 | fn | pollCopilotAuthCompletion | (private) |
+| 1289 | fn | pollKiroAuthCompletion | (private) |
+| 1307 | fn | pollOAuthStatus | (private) |
+| 1335 | fn | cancelOAuth | (internal) |
+| 1339 | fn | deleteAuthFile | (internal) |
+| 1367 | fn | pruneMenuBarItems | (private) |
+| 1411 | fn | importVertexServiceAccount | (internal) |
+| 1435 | fn | fetchAPIKeys | (internal) |
+| 1445 | fn | addAPIKey | (internal) |
+| 1457 | fn | updateAPIKey | (internal) |
+| 1469 | fn | deleteAPIKey | (internal) |
+| 1482 | fn | checkAccountStatusChanges | (private) |
+| 1503 | fn | checkQuotaNotifications | (internal) |
+| 1535 | fn | scanIDEsWithConsent | (internal) |
+| 1602 | fn | savePersistedIDEQuotas | (private) |
+| 1625 | fn | loadPersistedIDEQuotas | (private) |
+| 1687 | fn | shortenAccountKey | (private) |
+| 1699 | struct | OAuthState | (internal) |
+
