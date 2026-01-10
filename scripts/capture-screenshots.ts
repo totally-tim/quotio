@@ -40,7 +40,7 @@ const CONFIG = {
     afterCapture: 1500,
     afterMenuOpen: 600,
     afterModeSwitch: 1500,
-    afterWallpaperChange: 1000,
+    afterWallpaperChange: 2000,
   },
   retryAttempts: 3,
   retryDelay: 500,
@@ -63,8 +63,12 @@ const SCREENS: ScreenDef[] = [
   { id: "dashboard", name: "Dashboard", sidebarIndex: 0 },
   { id: "quota", name: "Quota", sidebarIndex: 1 },
   { id: "provider", name: "Providers", sidebarIndex: 2 },
+  { id: "fallback", name: "Fallback", sidebarIndex: 3 },
   { id: "agent_setup", name: "Agents", sidebarIndex: 4 },
+  { id: "api_keys", name: "API Keys", sidebarIndex: 5 },
+  { id: "logs", name: "Logs", sidebarIndex: 6 },
   { id: "settings", name: "Settings", sidebarIndex: 7 },
+  { id: "about", name: "About", sidebarIndex: 8 },
   { id: "menu_bar", name: "Menu Bar", sidebarIndex: -1, isMenuBar: true },
 ];
 
@@ -283,10 +287,8 @@ async function getCurrentWallpaper(): Promise<string> {
 async function setWallpaper(imagePath: string): Promise<void> {
   log(`Setting wallpaper: ${imagePath.split("/").pop()}...`);
   await runAppleScript(`
-    tell application "System Events"
-      tell every desktop
-        set picture to "${imagePath}"
-      end tell
+    tell application "Finder"
+      set desktop picture to POSIX file "${imagePath}"
     end tell
   `);
   await sleep(CONFIG.delays.afterWallpaperChange);
@@ -368,7 +370,7 @@ exit(1)
   return isNaN(id) ? null : id;
 }
 
-async function captureWindow(outputPath: string): Promise<void> {
+async function captureWindow(outputPath: string, wallpaperPath: string): Promise<void> {
   await activateApp();
   await sleep(200);
 
@@ -378,8 +380,30 @@ async function captureWindow(outputPath: string): Promise<void> {
     return;
   }
 
-  await $`screencapture -l ${windowId} ${outputPath}`.quiet();
+  const tempPath = outputPath.replace(".png", "_temp.png");
+  await $`screencapture -l ${windowId} ${tempPath}`.quiet();
+  await compositeOnWallpaper(tempPath, wallpaperPath, outputPath, 100);
+  await $`rm ${tempPath}`.quiet();
+
   log(`Saved: ${outputPath}`, "success");
+}
+
+async function compositeOnWallpaper(
+  windowImagePath: string,
+  wallpaperPath: string,
+  outputPath: string,
+  padding: number
+): Promise<void> {
+  const sipsInfo = await $`sips -g pixelWidth -g pixelHeight ${windowImagePath}`.text();
+  const widthMatch = sipsInfo.match(/pixelWidth:\s*(\d+)/);
+  const heightMatch = sipsInfo.match(/pixelHeight:\s*(\d+)/);
+  const windowWidth = parseInt(widthMatch?.[1] || "1920");
+  const windowHeight = parseInt(heightMatch?.[1] || "1080");
+
+  const canvasWidth = windowWidth + padding * 2;
+  const canvasHeight = windowHeight + padding * 2;
+
+  await $`magick ${wallpaperPath} -resize ${canvasWidth}x${canvasHeight}^ -gravity center -extent ${canvasWidth}x${canvasHeight} ${windowImagePath} -gravity center -composite ${outputPath}`.quiet();
 }
 
 async function hideAllWindows(includeQuotio = false): Promise<void> {
@@ -460,7 +484,12 @@ async function captureMenuBarDropdown(outputPath: string): Promise<void> {
 // Main Capture Flow
 // =============================================================================
 
-async function captureScreen(screen: ScreenDef, mode: AppearanceMode, outputDir: string): Promise<void> {
+async function captureScreen(
+  screen: ScreenDef,
+  mode: AppearanceMode,
+  outputDir: string,
+  wallpaperPath: string
+): Promise<void> {
   const suffix = mode === "dark" ? "_dark" : "";
 
   if (screen.isMenuBar) {
@@ -476,7 +505,7 @@ async function captureScreen(screen: ScreenDef, mode: AppearanceMode, outputDir:
     await retry(
       async () => {
         await navigateToScreen(screen.sidebarIndex);
-        await captureWindow(join(outputDir, `${screen.id}${suffix}.png`));
+        await captureWindow(join(outputDir, `${screen.id}${suffix}.png`), wallpaperPath);
       },
       CONFIG.retryAttempts,
       CONFIG.retryDelay
@@ -492,12 +521,13 @@ async function captureSelectedScreens(
   for (const mode of options.themes) {
     log(`\n📸 Capturing in ${mode} mode...`);
     await setAppearance(mode);
-    await setWallpaper(wallpapers[mode]);
+    const wallpaperPath = wallpapers[mode];
+    await setWallpaper(wallpaperPath);
     await activateApp();
     await resizeWindow();
 
     for (const screen of options.screens) {
-      await captureScreen(screen, mode, outputDir);
+      await captureScreen(screen, mode, outputDir, wallpaperPath);
     }
   }
 }
