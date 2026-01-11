@@ -20,10 +20,12 @@ final class StatusBarMenuBuilder {
     
     private let viewModel: QuotaViewModel
     private let modeManager = OperatingModeManager.shared
-    private let menuWidth: CGFloat = 300
+    private let menuWidth: CGFloat = 360
     
     // Selected provider from UserDefaults
     @AppStorage("menuBarSelectedProvider") private var selectedProviderRaw: String = ""
+    private var showAllAccounts: Bool = false
+    private var suppressResetOnce: Bool = false
     
     init(viewModel: QuotaViewModel) {
         self.viewModel = viewModel
@@ -32,6 +34,11 @@ final class StatusBarMenuBuilder {
     // MARK: - Build Menu
     
     func buildMenu() -> NSMenu {
+        if suppressResetOnce {
+            suppressResetOnce = false
+        } else {
+            showAllAccounts = false
+        }
         let menu = NSMenu()
         menu.autoenablesItems = false
         
@@ -68,7 +75,7 @@ final class StatusBarMenuBuilder {
                 menu.addItem(buildEmptyStateItem())
             } else {
                 let maxVisibleAccounts = 3
-                let displayAccounts = Array(accounts.prefix(maxVisibleAccounts))
+                let displayAccounts = showAllAccounts ? accounts : Array(accounts.prefix(maxVisibleAccounts))
                 for account in displayAccounts {
                     let cardItem = buildAccountCardItem(
                         email: account.email,
@@ -79,7 +86,8 @@ final class StatusBarMenuBuilder {
                 }
 
                 if accounts.count > maxVisibleAccounts {
-                    menu.addItem(buildViewMoreAccountsItem(remainingCount: accounts.count - maxVisibleAccounts))
+                    let remainingCount = showAllAccounts ? 0 : (accounts.count - maxVisibleAccounts)
+                    menu.addItem(buildViewMoreAccountsItem(remainingCount: remainingCount, isExpanded: showAllAccounts))
                 }
             }
             
@@ -196,8 +204,12 @@ final class StatusBarMenuBuilder {
         return item
     }
 
-    private func buildViewMoreAccountsItem(remainingCount: Int) -> NSMenuItem {
-        let view = MenuViewMoreAccountsView(remainingCount: remainingCount)
+    private func buildViewMoreAccountsItem(remainingCount: Int, isExpanded: Bool) -> NSMenuItem {
+        let view = MenuViewMoreAccountsView(remainingCount: remainingCount, isExpanded: isExpanded) { [self] in
+            self.showAllAccounts.toggle()
+            self.suppressResetOnce = true
+            StatusBarManager.shared.rebuildMenuInPlace()
+        }
         return viewItem(for: view)
     }
 
@@ -599,6 +611,8 @@ private struct MenuAccountCardView: View {
     
     private var settings: MenuBarSettingsManager { MenuBarSettingsManager.shared }
     @State private var isHovered = false
+    @State private var isUseHovered = false
+    @State private var isUsingAccount = false
     
     private var displayEmail: String {
         email.masked(if: settings.hideSensitiveInfo)
@@ -709,27 +723,47 @@ private struct MenuAccountCardView: View {
             
             // Active/Use Badge
             if isActiveInIDE {
-                HStack(spacing: 4) {
-                    Circle().fill(Color.green).frame(width: 6, height: 6)
-                    Text("Active")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                }
-                .foregroundStyle(.green)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.green.opacity(0.1))
-                .clipShape(Capsule())
+                Text("Using in IDE")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.secondary.opacity(0.06))
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
             } else if let onUse = onUseAccount {
-                Button(action: onUse) {
-                    Text("Use")
-                        .font(.system(size: 10, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color.blue.opacity(0.1))
-                        .clipShape(Capsule())
+                Button {
+                    isUsingAccount = true
+                    Task { @MainActor in
+                        onUse()
+                        try? await Task.sleep(nanoseconds: 650_000_000)
+                        isUsingAccount = false
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        if isUsingAccount {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                        Text("Use in IDE →")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(isUseHovered ? Color.secondary.opacity(0.12) : Color.secondary.opacity(0.06))
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(Color.secondary.opacity(isUseHovered ? 0.45 : 0.25), lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(isUsingAccount)
+                .onHover { isUseHovered = $0 }
             }
         }
     }
@@ -777,7 +811,7 @@ private struct MenuAccountCardView: View {
             // Last Update
             Text(data.lastUpdated.formatted(.relative(presentation: .named)))
                 .font(.system(size: 10, design: .rounded))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
         }
     }
     
@@ -1162,30 +1196,41 @@ private struct MenuEmptyStateView: View {
 
 private struct MenuViewMoreAccountsView: View {
     let remainingCount: Int
+    let isExpanded: Bool
+    let onToggle: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
-        Button {
-            MenuActionHandler.openMainWindow()
-        } label: {
+        Button(action: onToggle) {
             HStack(spacing: 6) {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 12))
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
 
-                Text("menubar.viewMoreAccounts".localized())
+                Text(isExpanded ? "Hide accounts" : "menubar.viewMoreAccounts".localized())
                     .font(.system(size: 12, weight: .medium))
 
                 if remainingCount > 0 {
                     Text("+\(remainingCount)")
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
                         .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.08))
+                        .clipShape(Capsule())
                 }
 
                 Spacer()
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 12)
+            .background(isHovered ? Color.secondary.opacity(0.1) : Color.secondary.opacity(0.05))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
