@@ -15,15 +15,16 @@ struct FallbackScreen: View {
     @State private var showReconfigureAlert = false
     @State private var showDuplicateNameAlert = false
     @State private var previousFallbackEnabled: Bool?
+    @State private var fallbackAvailableModels: [AvailableModel] = []
 
     /// Check if Bridge Mode is enabled
     private var isBridgeModeEnabled: Bool {
         viewModel.proxyManager.useBridgeMode
     }
 
-    /// Get available models from AgentSetupViewModel
+    /// Get available models - use fallback list if populated, otherwise use AgentSetupViewModel
     private var availableModels: [AvailableModel] {
-        viewModel.agentSetupViewModel.availableModels
+        fallbackAvailableModels.isEmpty ? viewModel.agentSetupViewModel.availableModels : fallbackAvailableModels
     }
 
     var body: some View {
@@ -82,9 +83,18 @@ struct FallbackScreen: View {
                 }
             )
         }
+        .onChange(of: viewModel.proxyManager.proxyStatus.running) { _, isRunning in
+            guard isRunning else { return }
+            Task { await loadFallbackModels() }
+        }
+        .onChange(of: addingEntryToModelId) { _, newValue in
+            guard newValue != nil else { return }
+            Task { await loadFallbackModels() }
+        }
         .task {
             await loadModelsIfNeeded()
         }
+
         // Alert when Fallback toggle changes
         .alert("fallback.reconfigureRequired".localized(), isPresented: $showReconfigureAlert) {
             Button("action.ok".localized(), role: .cancel) {}
@@ -102,16 +112,90 @@ struct FallbackScreen: View {
     // MARK: - Load Models
 
     private func loadModelsIfNeeded() async {
-        // Load models using AgentSetupViewModel if not already loaded
-        let agentVM = viewModel.agentSetupViewModel
-        if agentVM.availableModels.isEmpty {
-            // Initialize a temporary configuration to trigger model loading
-            guard viewModel.proxyManager.proxyStatus.running else { return }
-            agentVM.startConfiguration(
-                for: .claudeCode,
-                apiKey: viewModel.proxyManager.managementKey
+        await loadFallbackModels()
+    }
+    
+    private func loadFallbackModels() async {
+        // Guard: proxy must be running
+        guard viewModel.proxyManager.proxyStatus.running else {
+            return
+        }
+        
+        let apiClient = viewModel.apiClient
+            ?? ManagementAPIClient(
+                baseURL: viewModel.proxyManager.managementURL,
+                authKey: viewModel.proxyManager.managementKey
             )
-            await agentVM.loadModels(forceRefresh: false)
+        
+        // Fetch auth files if empty
+        var authFiles = viewModel.authFiles
+        if authFiles.isEmpty {
+            do {
+                authFiles = try await apiClient.fetchAuthFiles()
+                viewModel.authFiles = authFiles
+            } catch {
+                // If fetch fails, fall back to AgentSetupViewModel
+                let agentVM = viewModel.agentSetupViewModel
+                agentVM.startConfiguration(for: .claudeCode, apiKey: viewModel.proxyManager.managementKey)
+                await agentVM.loadModels(forceRefresh: true)
+                fallbackAvailableModels = agentVM.availableModels
+                return
+            }
+        }
+        
+        // Filter auth files: authenticated, non-disabled, non-quota-tracking providers
+        let eligibleAuthFiles = authFiles.filter { authFile in
+            guard !authFile.disabled,
+                  !authFile.unavailable,
+                  let provider = authFile.providerType,
+                  !provider.isQuotaTrackingOnly else {
+                return false
+            }
+            return true
+        }
+        
+        // Build model list from auth files
+        var modelsByKey: [String: AvailableModel] = [:]
+        
+        for authFile in eligibleAuthFiles {
+            guard let provider = authFile.providerType else { continue }
+            
+            do {
+                let models = try await apiClient.fetchAuthFileModels(name: authFile.name)
+                
+                for model in models {
+                    // Create composite key: provider::modelId (lowercased for deduplication)
+                    let compositeKey = "\(provider.rawValue)::\(model.id)".lowercased()
+                    
+                    // Only add if not already present (deduplication)
+                    if modelsByKey[compositeKey] == nil {
+                        let availableModel = AvailableModel(
+                            id: model.id,
+                            name: model.id,
+                            provider: provider.rawValue,
+                            isDefault: false
+                        )
+                        modelsByKey[compositeKey] = availableModel
+                    }
+                }
+            } catch {
+                // Silently continue on error for individual auth files
+                continue
+            }
+        }
+        
+        // Sort by display name
+        let sortedModels = modelsByKey.values.sorted { $0.displayName < $1.displayName }
+        
+        // Update state
+        fallbackAvailableModels = sortedModels
+        
+        // Fallback: if no models found, load from AgentSetupViewModel
+        if fallbackAvailableModels.isEmpty {
+            let agentVM = viewModel.agentSetupViewModel
+            agentVM.startConfiguration(for: .claudeCode, apiKey: viewModel.proxyManager.managementKey)
+            await agentVM.loadModels(forceRefresh: true)
+            fallbackAvailableModels = agentVM.availableModels
         }
     }
 

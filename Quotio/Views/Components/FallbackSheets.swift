@@ -102,21 +102,30 @@ struct AddFallbackEntrySheet: View {
     let onAdd: (AIProvider, String) -> Void
     let onDismiss: () -> Void
 
-    @State private var selectedModelId: String = ""
+    @State private var selectedModelKey: String = ""
     @State private var showValidationError = false
+
+    /// Build a unique composite key for a model (provider::modelId)
+    private func modelKey(_ model: AvailableModel) -> String {
+        let provider = providerFromModel(model).rawValue.lowercased()
+        let modelId = model.id.lowercased()
+        return "\(provider)::\(modelId)"
+    }
 
     /// Filter out virtual models (provider == "fallback") and already added entries
     private var filteredModels: [AvailableModel] {
-        let existingModelIds = Set(existingEntries.map { $0.modelId })
+        let existingModelKeys = Set(existingEntries.map { entry in
+            "\(entry.provider.rawValue.lowercased())::\(entry.modelId.lowercased())"
+        })
         return availableModels.filter { model in
             model.provider.lowercased() != "fallback" &&
-            !existingModelIds.contains(model.id)
+            !existingModelKeys.contains(modelKey(model))
         }
     }
 
     /// Get the selected model object
     private var selectedModel: AvailableModel? {
-        filteredModels.first { $0.id == selectedModelId }
+        filteredModels.first { modelKey($0) == selectedModelKey }
     }
 
     /// Map model provider string to AIProvider enum
@@ -156,7 +165,7 @@ struct AddFallbackEntrySheet: View {
     }
 
     private var isValidEntry: Bool {
-        !selectedModelId.isEmpty && selectedModel != nil
+        !selectedModelKey.isEmpty && selectedModel != nil
     }
 
     var body: some View {
@@ -191,7 +200,7 @@ struct AddFallbackEntrySheet: View {
                         .padding(.vertical, 8)
                 } else {
                     // Picker for model selection - grouped by provider
-                    Picker("", selection: $selectedModelId) {
+                    Picker("", selection: $selectedModelKey) {
                         Text("fallback.selectModelPlaceholder".localized())
                             .tag("")
 
@@ -201,7 +210,7 @@ struct AddFallbackEntrySheet: View {
                             Section(header: Text(provider.capitalized)) {
                                 ForEach(filteredModels.filter { $0.provider == provider }) { model in
                                     Text(model.displayName)
-                                        .tag(model.id)
+                                        .tag(modelKey(model))
                                 }
                             }
                         }
