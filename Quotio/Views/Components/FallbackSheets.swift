@@ -1,37 +1,30 @@
 //
 //  FallbackSheets.swift
-//  Quotio - Fallback Configuration Sheets
+//  Quotio - Model Fallback Configuration
 //
 
 import SwiftUI
 
-// MARK: - Virtual Model Sheet
+// MARK: - Add Virtual Model Sheet
 
 struct VirtualModelSheet: View {
     let virtualModel: VirtualModel?
     let onSave: (String) -> Void
     let onDismiss: () -> Void
 
-    @State private var name: String = ""
+    @State private var modelName: String = ""
     @State private var showValidationError = false
 
-    private var isEditing: Bool {
-        virtualModel != nil
-    }
-
-    private var isValidName: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    var isEditing: Bool { virtualModel != nil }
 
     var body: some View {
         VStack(spacing: 24) {
-            // Header
             VStack(spacing: 8) {
                 Image(systemName: isEditing ? "pencil.circle.fill" : "plus.circle.fill")
                     .font(.system(size: 48))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(isEditing ? .blue : .green)
 
-                Text(isEditing ? "fallback.editVirtualModel".localized() : "fallback.createVirtualModel".localized())
+                Text(isEditing ? "fallback.editVirtualModel".localized() : "fallback.addVirtualModel".localized())
                     .font(.title2)
                     .fontWeight(.bold)
 
@@ -41,55 +34,47 @@ struct VirtualModelSheet: View {
                     .multilineTextAlignment(.center)
             }
 
-            // Name input
             VStack(alignment: .leading, spacing: 6) {
-                Text("fallback.modelName".localized())
+                Text("fallback.virtualModelName".localized())
                     .font(.subheadline)
                     .fontWeight(.medium)
 
-                TextField("fallback.modelNamePlaceholder".localized(), text: $name)
+                TextField("fallback.virtualModelPlaceholder".localized(), text: $modelName)
                     .textFieldStyle(.roundedBorder)
+                    .onSubmit { validateAndSave() }
 
-                if showValidationError && !isValidName {
-                    Text("fallback.nameRequired".localized())
+                if showValidationError && modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("fallback.modelNameRequired".localized())
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
-
-                Text("fallback.modelNameHint".localized())
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
             }
-            .frame(maxWidth: 320)
 
-            // Buttons
             HStack(spacing: 16) {
-                Button("action.cancel".localized(), role: .cancel) {
-                    onDismiss()
-                }
-                .buttonStyle(.bordered)
+                Button("action.cancel".localized(), role: .cancel) { onDismiss() }
+                    .buttonStyle(.bordered)
 
-                Button {
-                    if isValidName {
-                        onSave(name.trimmingCharacters(in: .whitespacesAndNewlines))
-                        onDismiss()
-                    } else {
-                        showValidationError = true
-                    }
-                } label: {
-                    Text(isEditing ? "action.save".localized() : "action.create".localized())
+                Button { validateAndSave() } label: {
+                    Label(isEditing ? "fallback.update".localized() : "fallback.create".localized(), systemImage: isEditing ? "pencil" : "plus")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!isValidName)
+                .disabled(modelName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(40)
-        .frame(width: 440)
-        .onAppear {
-            if let model = virtualModel {
-                name = model.name
-            }
+        .frame(width: 480)
+        .onAppear { modelName = virtualModel?.name ?? "" }
+    }
+
+    private func validateAndSave() {
+        let trimmedName = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            showValidationError = true
+            return
         }
+
+        onSave(trimmedName)
+        onDismiss()
     }
 }
 
@@ -105,14 +90,12 @@ struct AddFallbackEntrySheet: View {
     @State private var selectedModelKey: String = ""
     @State private var showValidationError = false
 
-    /// Build a unique composite key for a model (provider::modelId)
     private func modelKey(_ model: AvailableModel) -> String {
         let provider = providerFromModel(model).rawValue.lowercased()
         let modelId = model.id.lowercased()
         return "\(provider)::\(modelId)"
     }
 
-    /// Filter out virtual models (provider == "fallback") and already added entries
     private var filteredModels: [AvailableModel] {
         let existingModelKeys = Set(existingEntries.map { entry in
             "\(entry.provider.rawValue.lowercased())::\(entry.modelId.lowercased())"
@@ -123,18 +106,21 @@ struct AddFallbackEntrySheet: View {
         }
     }
 
-    /// Get the selected model object
     private var selectedModel: AvailableModel? {
         filteredModels.first { modelKey($0) == selectedModelKey }
     }
 
-    /// Map model provider string to AIProvider enum
     private func providerFromModel(_ model: AvailableModel) -> AIProvider {
         let providerName = model.provider.lowercased()
         let modelId = model.id.lowercased()
 
-        // FIRST: Try to match by model ID prefix (most reliable for proxy models)
-        // e.g., "kiro-claude-xxx" -> kiro, "gemini-claude-xxx" -> gemini
+        if providerName == "copilot" {
+            return .copilot
+        }
+        if let provider = AIProvider.allCases.first(where: { $0.rawValue.lowercased() == providerName }) {
+            return provider
+        }
+
         for provider in AIProvider.allCases {
             let providerKey = provider.rawValue.lowercased()
             if modelId.hasPrefix(providerKey + "-") || modelId.hasPrefix(providerKey + "_") {
@@ -142,14 +128,6 @@ struct AddFallbackEntrySheet: View {
             }
         }
 
-        // SECOND: Try exact match on provider field
-        for provider in AIProvider.allCases {
-            if provider.rawValue.lowercased() == providerName {
-                return provider
-            }
-        }
-
-        // THIRD: Try to infer from model ID content (for models without prefix)
         if modelId.contains("kiro") {
             return .kiro
         } else if modelId.contains("gemini") {
@@ -160,7 +138,6 @@ struct AddFallbackEntrySheet: View {
             return .codex
         }
 
-        // Default to claude for generic claude models
         return .claude
     }
 
@@ -170,7 +147,6 @@ struct AddFallbackEntrySheet: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            // Header
             VStack(spacing: 8) {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 48))
@@ -186,20 +162,17 @@ struct AddFallbackEntrySheet: View {
                     .multilineTextAlignment(.center)
             }
 
-            // Model selection
             VStack(alignment: .leading, spacing: 6) {
                 Text("fallback.modelId".localized())
                     .font(.subheadline)
                     .fontWeight(.medium)
 
                 if filteredModels.isEmpty {
-                    // Manual input when no models available
                     Text("fallback.noModelsHint".localized())
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .padding(.vertical, 8)
                 } else {
-                    // Picker for model selection - grouped by provider
                     Picker("", selection: $selectedModelKey) {
                         Text("fallback.selectModelPlaceholder".localized())
                             .tag("")
@@ -225,7 +198,6 @@ struct AddFallbackEntrySheet: View {
                         .foregroundStyle(.red)
                 }
 
-                // Show selected model info
                 if let model = selectedModel {
                     HStack(spacing: 8) {
                         let provider = providerFromModel(model)
@@ -246,12 +218,9 @@ struct AddFallbackEntrySheet: View {
             }
             .frame(maxWidth: 400)
 
-            // Buttons
             HStack(spacing: 16) {
-                Button("action.cancel".localized(), role: .cancel) {
-                    onDismiss()
-                }
-                .buttonStyle(.bordered)
+                Button("action.cancel".localized(), role: .cancel) { onDismiss() }
+                    .buttonStyle(.bordered)
 
                 Button {
                     if isValidEntry, let model = selectedModel {
