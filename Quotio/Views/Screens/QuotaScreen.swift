@@ -477,25 +477,33 @@ private struct AccountQuotaCardV2: View {
         }
         if !gemini3ProModels.isEmpty {
             let aggregatedQuota = settings.aggregateModelPercentages(gemini3ProModels.map(\.percentage))
-            groups.append(AntigravityDisplayGroup(name: "Gemini 3 Pro", percentage: aggregatedQuota, models: gemini3ProModels))
+            if aggregatedQuota >= 0 {
+                groups.append(AntigravityDisplayGroup(name: "Gemini 3 Pro", percentage: aggregatedQuota, models: gemini3ProModels))
+            }
         }
         
         let gemini3FlashModels = data.models.filter { $0.name.contains("gemini-3-flash") }
         if !gemini3FlashModels.isEmpty {
             let aggregatedQuota = settings.aggregateModelPercentages(gemini3FlashModels.map(\.percentage))
-            groups.append(AntigravityDisplayGroup(name: "Gemini 3 Flash", percentage: aggregatedQuota, models: gemini3FlashModels))
+            if aggregatedQuota >= 0 {
+                groups.append(AntigravityDisplayGroup(name: "Gemini 3 Flash", percentage: aggregatedQuota, models: gemini3FlashModels))
+            }
         }
         
         let geminiImageModels = data.models.filter { $0.name.contains("image") }
         if !geminiImageModels.isEmpty {
             let aggregatedQuota = settings.aggregateModelPercentages(geminiImageModels.map(\.percentage))
-            groups.append(AntigravityDisplayGroup(name: "Gemini 3 Image", percentage: aggregatedQuota, models: geminiImageModels))
+            if aggregatedQuota >= 0 {
+                groups.append(AntigravityDisplayGroup(name: "Gemini 3 Image", percentage: aggregatedQuota, models: geminiImageModels))
+            }
         }
         
         let claudeModels = data.models.filter { $0.name.contains("claude") }
         if !claudeModels.isEmpty {
             let aggregatedQuota = settings.aggregateModelPercentages(claudeModels.map(\.percentage))
-            groups.append(AntigravityDisplayGroup(name: "Claude", percentage: aggregatedQuota, models: claudeModels))
+            if aggregatedQuota >= 0 {
+                groups.append(AntigravityDisplayGroup(name: "Claude", percentage: aggregatedQuota, models: claudeModels))
+            }
         }
         
         return groups.sorted { $0.percentage < $1.percentage }

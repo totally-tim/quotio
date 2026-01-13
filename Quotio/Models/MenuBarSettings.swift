@@ -307,13 +307,13 @@ extension MenuBarSettingsManager {
         
         switch totalUsageMode {
         case .sessionOnly:
-            if sessionRemaining > 0 {
+            if sessionRemaining >= 0 {
                 return sessionRemaining
             }
             if hasExtraModels {
-                return extraRemaining >= 0 ? extraRemaining : 0
+                return extraRemaining
             }
-            return sessionRemaining >= 0 ? 0 : -1
+            return -1
             
         case .combined:
             let session = sessionRemaining >= 0 ? sessionRemaining : -1
@@ -335,7 +335,7 @@ extension MenuBarSettingsManager {
     func calculateTotalUsagePercent(sessionPercent: Double?, extraPercent: Double?) -> Double {
         switch totalUsageMode {
         case .sessionOnly:
-            if let session = sessionPercent, session > 0 {
+            if let session = sessionPercent {
                 return session
             }
             return extraPercent ?? -1

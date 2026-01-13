@@ -140,6 +140,14 @@ struct QuotioApp: App {
                 .onChange(of: menuBarSettings.colorMode) {
                     updateStatusBar()
                 }
+                .onChange(of: menuBarSettings.totalUsageMode) {
+                    updateStatusBar()
+                    statusBarManager.rebuildMenuInPlace()
+                }
+                .onChange(of: menuBarSettings.modelAggregationMode) {
+                    updateStatusBar()
+                    statusBarManager.rebuildMenuInPlace()
+                }
                 .onChange(of: modeManager.currentMode) {
                     updateStatusBar()
                 }
