@@ -336,6 +336,8 @@ struct UnifiedProxySettingsSection: View {
     
     @State private var isLoading = true
     @State private var loadError: String?
+    @State private var isLoadingConfig = false  // Prevents onChange from firing during load
+    @State private var hasLoadedConfig = false  // Prevents reloading on every navigation
     
     @State private var proxyURL = ""
     @State private var routingStrategy = "round-robin"
@@ -397,8 +399,13 @@ struct UnifiedProxySettingsSection: View {
                 Label(sectionTitle, systemImage: "slider.horizontal.3")
             }
             .onAppear {
-                Task {
-                    await loadConfig()
+                if !hasLoadedConfig {
+                    Task {
+                        await loadConfig()
+                    }
+                } else {
+                    // Already loaded, just show the content
+                    isLoading = false
                 }
             }
         } else if let error = loadError {
@@ -469,6 +476,7 @@ struct UnifiedProxySettingsSection: View {
             }
             .pickerStyle(.segmented)
             .onChange(of: routingStrategy) { _, newValue in
+                guard !isLoadingConfig else { return }
                 Task { await saveRoutingStrategy(newValue) }
             }
         } header: {
@@ -485,10 +493,12 @@ struct UnifiedProxySettingsSection: View {
         Section {
             Toggle("settings.autoSwitchAccount".localized(), isOn: $switchProject)
                 .onChange(of: switchProject) { _, newValue in
+                    guard !isLoadingConfig else { return }
                     Task { await saveSwitchProject(newValue) }
                 }
             Toggle("settings.autoSwitchPreview".localized(), isOn: $switchPreviewModel)
                 .onChange(of: switchPreviewModel) { _, newValue in
+                    guard !isLoadingConfig else { return }
                     Task { await saveSwitchPreviewModel(newValue) }
                 }
         } header: {
@@ -503,11 +513,13 @@ struct UnifiedProxySettingsSection: View {
         Section {
             Stepper("settings.maxRetries".localized() + ": \(requestRetry)", value: $requestRetry, in: 0...10)
                 .onChange(of: requestRetry) { _, newValue in
+                    guard !isLoadingConfig else { return }
                     Task { await saveRequestRetry(newValue) }
                 }
             
             Stepper("settings.maxRetryInterval".localized() + ": \(maxRetryInterval)s", value: $maxRetryInterval, in: 5...300, step: 5)
                 .onChange(of: maxRetryInterval) { _, newValue in
+                    guard !isLoadingConfig else { return }
                     Task { await saveMaxRetryInterval(newValue) }
                 }
         } header: {
@@ -522,16 +534,19 @@ struct UnifiedProxySettingsSection: View {
         Section {
             Toggle("settings.loggingToFile".localized(), isOn: $loggingToFile)
                 .onChange(of: loggingToFile) { _, newValue in
+                    guard !isLoadingConfig else { return }
                     Task { await saveLoggingToFile(newValue) }
                 }
             
             Toggle("settings.requestLog".localized(), isOn: $requestLog)
                 .onChange(of: requestLog) { _, newValue in
+                    guard !isLoadingConfig else { return }
                     Task { await saveRequestLog(newValue) }
                 }
             
             Toggle("settings.debugMode".localized(), isOn: $debugMode)
                 .onChange(of: debugMode) { _, newValue in
+                    guard !isLoadingConfig else { return }
                     Task { await saveDebugMode(newValue) }
                 }
         } header: {
@@ -543,7 +558,9 @@ struct UnifiedProxySettingsSection: View {
     }
     
     private func loadConfig() async {
+        NSLog("[RemoteSettings] loadConfig called, hasLoadedConfig=\(hasLoadedConfig)")
         isLoading = true
+        isLoadingConfig = true
         loadError = nil
         
         guard let apiClient = viewModel.apiClient else {
@@ -551,13 +568,25 @@ struct UnifiedProxySettingsSection: View {
                 ? "settings.proxy.startToConfigureAdvanced".localized()
                 : "settings.remote.noConnection".localized()
             isLoading = false
+            isLoadingConfig = false
             return
         }
         
         do {
             let config = try await apiClient.fetchConfig()
+            
+            // Fetch routing strategy separately since /config doesn't include it
+            let fetchedRoutingStrategy: String
+            do {
+                fetchedRoutingStrategy = try await apiClient.getRoutingStrategy()
+                NSLog("[RemoteSettings] Fetched routing strategy: \(fetchedRoutingStrategy)")
+            } catch {
+                NSLog("[RemoteSettings] Failed to fetch routing strategy, using default: \(error)")
+                fetchedRoutingStrategy = "round-robin"
+            }
+            
             proxyURL = config.proxyURL ?? ""
-            routingStrategy = config.routingStrategy ?? "round-robin"
+            routingStrategy = fetchedRoutingStrategy
             requestRetry = config.requestRetry ?? 3
             maxRetryInterval = config.maxRetryInterval ?? 30
             loggingToFile = config.loggingToFile ?? true
@@ -566,10 +595,13 @@ struct UnifiedProxySettingsSection: View {
             switchProject = config.quotaExceeded?.switchProject ?? true
             switchPreviewModel = config.quotaExceeded?.switchPreviewModel ?? true
             proxyURLValidation = ProxyURLValidator.validate(proxyURL)
+            hasLoadedConfig = true
             isLoading = false
+            isLoadingConfig = false
         } catch {
             loadError = error.localizedDescription
             isLoading = false
+            isLoadingConfig = false
         }
     }
     
@@ -587,9 +619,14 @@ struct UnifiedProxySettingsSection: View {
     }
     
     private func saveRoutingStrategy(_ strategy: String) async {
-        guard let apiClient = viewModel.apiClient else { return }
+        guard let apiClient = viewModel.apiClient else {
+            NSLog("[RemoteSettings] Cannot save routing strategy: apiClient is nil")
+            return
+        }
         do {
+            NSLog("[RemoteSettings] Saving routing strategy: \(strategy)")
             try await apiClient.setRoutingStrategy(strategy)
+            NSLog("[RemoteSettings] Successfully saved routing strategy: \(strategy)")
         } catch {
             NSLog("[RemoteSettings] Failed to save routing strategy: \(error)")
         }
