@@ -691,4 +691,28 @@ nonisolated struct SwitchPreviewModelResponse: Codable, Sendable {
 
 nonisolated struct RoutingStrategyResponse: Codable, Sendable {
     let strategy: String
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let strategy = try container.decodeIfPresent(String.self, forKey: .strategy) {
+            self.strategy = strategy
+        } else if let strategy = try container.decodeIfPresent(String.self, forKey: .value) {
+            self.strategy = strategy
+        } else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.strategy,
+                .init(codingPath: decoder.codingPath, debugDescription: "Neither 'strategy' nor 'value' key found")
+            )
+        }
+    }
+    
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(strategy, forKey: .strategy)
+    }
+    
+    private enum CodingKeys: String, CodingKey {
+        case strategy
+        case value
+    }
 }
